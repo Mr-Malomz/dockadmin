@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Node
+**/node_modules
+**/.npm
+
+# Rust
+**/target
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Build outputs
+**/dist
+**/build
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+**/*.md
+**/*.log
+.env*
