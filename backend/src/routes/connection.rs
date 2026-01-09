@@ -6,7 +6,7 @@ use axum::{
 use sqlx::any::AnyPoolOptions;
 
 use crate::{
-    models::{ConnectRequest, ConnectResponse, DbType, StatusResponse},
+    models::{ApiResponse, ConnectRequest, ConnectResponse, DbType, StatusResponse},
     state::{AppState, ConnectionInfo},
 };
 
@@ -36,7 +36,7 @@ fn build_connection_string(req: &ConnectRequest) -> String {
 async fn connect(
     State(state): State<AppState>,
     Json(payload): Json<ConnectRequest>,
-) -> Json<ConnectResponse> {
+) -> Json<ApiResponse<ConnectResponse>> {
     let connection_string = build_connection_string(&payload);
     match AnyPoolOptions::new()
         .max_connections(5)
@@ -50,47 +50,44 @@ async fn connect(
                 database: payload.database.clone(),
                 db_type: payload.db_type.clone(),
             });
-            Json(ConnectResponse {
+
+            Json(ApiResponse::success(ConnectResponse {
                 success: true,
                 database: payload.database,
                 db_type: payload.db_type,
-            })
+            }))
         }
-        Err(e) => Json(ConnectResponse {
-            success: false,
-            database: payload.database,
-            db_type: payload.db_type,
-        }),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
 // GET /api/status
-async fn status(State(state): State<AppState>) -> Json<StatusResponse> {
+async fn status(State(state): State<AppState>) -> Json<ApiResponse<StatusResponse>> {
     let state_read = state.read().unwrap();
 
     match &state_read.connection_info {
-        Some(info) => Json(StatusResponse {
+        Some(info) => Json(ApiResponse::success(StatusResponse {
             connected: state_read.pool.is_some(),
             database: Some(info.database.clone()),
             db_type: Some(info.db_type.clone()),
-        }),
-        None => Json(StatusResponse {
+        })),
+        None => Json(ApiResponse::success(StatusResponse {
             connected: false,
             database: None,
             db_type: None,
-        }),
+        })),
     }
 }
 
 // POST /api/disconnect
-async fn disconnect(State(state): State<AppState>) -> Json<StatusResponse> {
+async fn disconnect(State(state): State<AppState>) -> Json<ApiResponse<StatusResponse>> {
     let mut state_write = state.write().unwrap();
     state_write.pool = None;
     state_write.connection_info = None;
 
-    Json(StatusResponse {
+    Json(ApiResponse::success(StatusResponse {
         connected: false,
         database: None,
         db_type: None,
-    })
+    }))
 }

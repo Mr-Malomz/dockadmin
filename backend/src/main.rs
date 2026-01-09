@@ -3,6 +3,7 @@ use crate::state::create_app_state;
 mod models;
 mod routes;
 mod server;
+mod sql_utils;
 mod state;
 
 #[tokio::main]

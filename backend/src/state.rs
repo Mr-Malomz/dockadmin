@@ -12,7 +12,7 @@ pub struct ConnectionInfo {
 }
 
 pub struct AppStateInner {
-    pub pool: Option<AnyPool>, 
+    pub pool: Option<AnyPool>,
     pub connection_info: Option<ConnectionInfo>,
 }
 
