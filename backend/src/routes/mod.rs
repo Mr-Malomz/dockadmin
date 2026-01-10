@@ -13,6 +13,6 @@ pub fn api_routes(state: AppState) -> Router {
         .merge(connection::routes(state.clone()))
         .nest("/database", database::routes())
         .nest("/schema", schema::routes(state.clone()))
-        .nest("/table", data::routes())
+        .nest("/table", data::routes(state.clone()))
         .nest("/query", query::routes())
 }

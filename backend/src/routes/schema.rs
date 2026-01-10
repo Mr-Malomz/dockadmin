@@ -122,8 +122,9 @@ async fn get_table(
         (pool, db_type, db_name)
     };
 
-    let query = match db_type {
-        DbType::Postgres => format!(
+    // Build query with proper escaping for each database type
+    let (query, use_bind) = match db_type {
+        DbType::Postgres => (
             "SELECT column_name, data_type, is_nullable, column_default,
                 CASE WHEN pk.constraint_type = 'PRIMARY KEY' THEN true ELSE false END as is_primary
              FROM information_schema.columns c
@@ -133,29 +134,41 @@ async fn get_table(
                  JOIN information_schema.table_constraints tc ON ku.constraint_name = tc.constraint_name
                  WHERE tc.constraint_type = 'PRIMARY KEY'
              ) pk ON c.table_schema = pk.table_schema AND c.table_name = pk.table_name AND c.column_name = pk.column_name
-             WHERE c.table_schema = 'public' AND c.table_name = '{}'
-             ORDER BY c.ordinal_position",
-            name
+             WHERE c.table_schema = 'public' AND c.table_name = $1
+             ORDER BY c.ordinal_position".to_string(),
+            true
         ),
-        DbType::Mysql => format!(
-            "SELECT column_name, data_type, is_nullable, column_default,
-                CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary
-             FROM information_schema.columns
-             WHERE table_schema = '{}' AND table_name = '{}'
-             ORDER BY ordinal_position",
-            db_name, name
-        ),
-        DbType::Sqlite => format!(
+        DbType::Mysql => {
+            // Escape single quotes for MySQL
+            let safe_db = db_name.replace("'", "''");
+            let safe_name = name.replace("'", "''");
+            (format!(
+                "SELECT column_name, data_type, is_nullable, column_default,
+                    CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary
+                 FROM information_schema.columns
+                 WHERE table_schema = '{}' AND table_name = '{}'
+                 ORDER BY ordinal_position",
+                safe_db, safe_name
+            ), false)
+        },
+        DbType::Sqlite => (
             "SELECT name as column_name, type as data_type, 
                 CASE WHEN \"notnull\" = 0 THEN 'YES' ELSE 'NO' END as is_nullable, 
                 dflt_value as column_default, 
                 pk as is_primary
-             FROM pragma_table_info('{}')",
-            name
+             FROM pragma_table_info(?)".to_string(),
+            true
         ),
     };
 
-    match sqlx::query(&query).fetch_all(&pool).await {
+    // Execute query with or without parameter binding
+    let result = if use_bind {
+        sqlx::query(&query).bind(&name).fetch_all(&pool).await
+    } else {
+        sqlx::query(&query).fetch_all(&pool).await
+    };
+
+    match result {
         Ok(rows) => {
             let columns: Vec<ColumnInfo> = rows
                 .into_iter()
@@ -253,6 +266,9 @@ async fn get_indexes(
                 Ok(indexes)
             }
             DbType::Mysql => {
+                // Escape single quotes for MySQL
+                let safe_db = db_name.replace("'", "''");
+                let safe_name = name.replace("'", "''");
                 let sql = format!(
                     "
                     SELECT 
@@ -264,7 +280,7 @@ async fn get_indexes(
                     WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'
                     GROUP BY INDEX_NAME, NON_UNIQUE, INDEX_NAME
                 ",
-                    db_name, name
+                    safe_db, safe_name
                 );
 
                 let rows = sqlx::query(&sql)
@@ -308,9 +324,9 @@ async fn get_indexes(
                     let origin: String = row.try_get("origin").unwrap_or_default();
                     let is_primary = origin == "pk";
 
-                    // Now get columns for this index
-                    let cols_sql = format!("SELECT name FROM pragma_index_info('{}')", index_name);
-                    let cols_rows = sqlx::query(&cols_sql)
+                    // Now get columns for this index - use parameterized query
+                    let cols_rows = sqlx::query("SELECT name FROM pragma_index_info(?)")
+                        .bind(&index_name)
                         .fetch_all(&pool)
                         .await
                         .unwrap_or_default();
@@ -396,6 +412,9 @@ async fn get_foreign_keys(
                 Ok(fks)
             }
             DbType::Mysql => {
+                // Escape single quotes for MySQL
+                let safe_db = db_name.replace("'", "''");
+                let safe_name = name.replace("'", "''");
                 let sql = format!(
                     "
                     SELECT 
@@ -408,7 +427,7 @@ async fn get_foreign_keys(
                       AND TABLE_NAME = '{}' 
                       AND REFERENCED_TABLE_NAME IS NOT NULL
                 ",
-                    db_name, name
+                    safe_db, safe_name
                 );
 
                 let rows = sqlx::query(&sql)
