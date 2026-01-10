@@ -31,3 +31,33 @@ pub struct ForeignKeyInfo {
     pub foreign_table: String,
     pub foreign_column: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ColumnDefinition {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub is_primary_key: bool,
+    pub default_value: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTableRequest {
+    pub name: String,
+    pub columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Debug, Deserialize)]
+pub enum AlterType {
+    RenameTable,
+    AddColumn,
+    DropColumn,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AlterTableRequest {
+    pub alter_type: AlterType,
+    pub new_name: Option<String>,
+    pub column_definition: Option<ColumnDefinition>,
+    pub column_name: Option<String>,
+}

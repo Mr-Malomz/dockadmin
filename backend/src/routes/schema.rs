@@ -7,7 +7,10 @@ use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::{
-    models::{ApiResponse, ColumnInfo, DbType, IndexInfo, TableInfo},
+    models::{
+        AlterTableRequest, AlterType, ApiResponse, ColumnInfo, CreateTableRequest, DbType, ForeignKeyInfo, IndexInfo, TableInfo
+    },
+    sql_utils::{is_valid_identifier, quote_identifier},
     state::AppState,
 };
 
@@ -336,33 +339,333 @@ async fn get_indexes(
 }
 
 /// GET /api/schema/table/{name}/foreign-keys - Get foreign key relationships
-async fn get_foreign_keys(Path(name): Path<String>) -> Json<ApiResponse<Value>> {
-    // TODO: Implement get foreign keys
-    Json(ApiResponse::success(
-        json!({ "message": "Not implemented", "table": name }),
-    ))
+async fn get_foreign_keys(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Json<ApiResponse<Value>> {
+    let (pool, db_type, db_name) = {
+        let state_read = state.read().unwrap();
+
+        let pool = match &state_read.pool {
+            Some(p) => p.clone(),
+            None => return Json(ApiResponse::error("Not connected to database")),
+        };
+
+        let (db_type, db_name) = match &state_read.connection_info {
+            Some(info) => (info.db_type.clone(), info.database.clone()),
+            None => return Json(ApiResponse::error("No connection info")),
+        };
+
+        (pool, db_type, db_name)
+    };
+
+    let result: Result<Vec<ForeignKeyInfo>, String> = async {
+        match db_type {
+            DbType::Postgres => {
+                let sql = "
+                    SELECT
+                        tc.constraint_name,
+                        kcu.column_name,
+                        ccu.table_name AS foreign_table,
+                        ccu.column_name AS foreign_column
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                      AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage AS ccu
+                      ON ccu.constraint_name = tc.constraint_name
+                      AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                      AND tc.table_name = $1
+                ";
+                let rows = sqlx::query(sql)
+                    .bind(name)
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let fks = rows
+                    .into_iter()
+                    .map(|row| crate::models::ForeignKeyInfo {
+                        constraint_name: row.try_get("constraint_name").unwrap_or_default(),
+                        column_name: row.try_get("column_name").unwrap_or_default(),
+                        foreign_table: row.try_get("foreign_table").unwrap_or_default(),
+                        foreign_column: row.try_get("foreign_column").unwrap_or_default(),
+                    })
+                    .collect();
+                Ok(fks)
+            }
+            DbType::Mysql => {
+                let sql = format!(
+                    "
+                    SELECT 
+                        CONSTRAINT_NAME as constraint_name,
+                        COLUMN_NAME as column_name,
+                        REFERENCED_TABLE_NAME as foreign_table,
+                        REFERENCED_COLUMN_NAME as foreign_column
+                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                    WHERE TABLE_SCHEMA = '{}' 
+                      AND TABLE_NAME = '{}' 
+                      AND REFERENCED_TABLE_NAME IS NOT NULL
+                ",
+                    db_name, name
+                );
+
+                let rows = sqlx::query(&sql)
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let fks = rows
+                    .into_iter()
+                    .map(|row| crate::models::ForeignKeyInfo {
+                        constraint_name: row.try_get("constraint_name").unwrap_or_default(),
+                        column_name: row.try_get("column_name").unwrap_or_default(),
+                        foreign_table: row.try_get("foreign_table").unwrap_or_default(),
+                        foreign_column: row.try_get("foreign_column").unwrap_or_default(),
+                    })
+                    .collect();
+                Ok(fks)
+            }
+            DbType::Sqlite => {
+                let rows =
+                    sqlx::query("SELECT id, `from`, `table`, `to` FROM pragma_foreign_key_list(?)")
+                        .bind(&name)
+                        .fetch_all(&pool)
+                        .await
+                        .map_err(|e| e.to_string())?;
+
+                let fks = rows
+                    .into_iter()
+                    .map(|row| {
+                        let id: i64 = row.try_get("id").unwrap_or(0);
+                        crate::models::ForeignKeyInfo {
+                            constraint_name: format!("fk_{}", id), // SQLite doesn't always name FKs explicitly in this list
+                            column_name: row.try_get("from").unwrap_or_default(),
+                            foreign_table: row.try_get("table").unwrap_or_default(),
+                            foreign_column: row.try_get("to").unwrap_or_default(),
+                        }
+                    })
+                    .collect();
+                Ok(fks)
+            }
+        }
+    }
+    .await;
+
+    match result {
+        Ok(fks) => Json(ApiResponse::success(json!({ "foreign_keys": fks }))),
+        Err(e) => Json(ApiResponse::error(e)),
+    }
 }
 
 /// POST /api/schema/table - Create new table
-async fn create_table() -> Json<ApiResponse<Value>> {
-    // TODO: Implement create table
-    Json(ApiResponse::success(
-        json!({ "message": "Not implemented" }),
-    ))
+async fn create_table(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateTableRequest>,
+) -> Json<ApiResponse<Value>> {
+    if !is_valid_identifier(&payload.name) {
+        return Json(ApiResponse::error("Invalid table name"));
+    }
+
+    let (pool, db_type, db_name) = {
+        let state_read = state.read().unwrap();
+
+        let pool = match &state_read.pool {
+            Some(p) => p.clone(),
+            None => return Json(ApiResponse::error("Not connected to database")),
+        };
+
+        let (db_type, db_name) = match &state_read.connection_info {
+            Some(info) => (info.db_type.clone(), info.database.clone()),
+            None => return Json(ApiResponse::error("No connection info")),
+        };
+
+        (pool, db_type, db_name)
+    };
+
+    let mut column_defs = Vec::new();
+    for col in &payload.columns {
+        if !is_valid_identifier(&col.name) {
+            return Json(ApiResponse::error(&format!(
+                "Invalid column name: {}",
+                col.name
+            )));
+        }
+        let name_quoted = quote_identifier(&col.name, &db_type);
+        // map simplified types to specific DB types
+        let data_type = match col.data_type.to_uppercase().as_str() {
+            "TEXT" | "STRING" => "TEXT",
+            "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+            "BOOL" | "BOOLEAN" => match db_type {
+                DbType::Postgres => "BOOLEAN",
+                _ => "INTEGER", // MySQL/SQLite use 0/1 usually
+            },
+            "DATETIME" => match db_type {
+                DbType::Postgres => "TIMESTAMP",
+                _ => "DATETIME",
+            },
+            _ => "TEXT", // Fallback
+        };
+        let nullable = if col.nullable { "" } else { "NOT NULL" };
+        let primary = if col.is_primary_key {
+            // Note: SQLite uses "INTEGER PRIMARY KEY AUTOINCREMENT" explicitly for auto-ids
+            "PRIMARY KEY"
+        } else {
+            ""
+        };
+        column_defs.push(format!(
+            "{} {} {} {}",
+            name_quoted, data_type, nullable, primary
+        ));
+    }
+
+    // construct SQL
+    let table_name_quoted = quote_identifier(&payload.name, &db_type);
+    let sql = format!(
+        "CREATE TABLE {} ({})",
+        table_name_quoted,
+        column_defs.join(", ")
+    );
+
+    // execute the query
+    match sqlx::query(&sql).execute(&pool).await {
+        Ok(_) => Json(ApiResponse::success(json!({
+            "message": "Table created successfully",
+            "table": payload.name
+        }))),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
+    }
 }
 
 /// PUT /api/schema/table/{name} - Alter table structure
-async fn alter_table(Path(name): Path<String>) -> Json<ApiResponse<Value>> {
-    // TODO: Implement alter table
-    Json(ApiResponse::success(
-        json!({ "message": "Not implemented", "table": name }),
-    ))
+async fn alter_table(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(payload): Json<AlterTableRequest>,
+) -> Json<ApiResponse<Value>> {
+    if !is_valid_identifier(&name) {
+        return Json(ApiResponse::error("Invalid table name"));
+    }
+
+    let (pool, db_type, db_name) = {
+        let state_read = state.read().unwrap();
+
+        let pool = match &state_read.pool {
+            Some(p) => p.clone(),
+            None => return Json(ApiResponse::error("Not connected to database")),
+        };
+
+        let (db_type, db_name) = match &state_read.connection_info {
+            Some(info) => (info.db_type.clone(), info.database.clone()),
+            None => return Json(ApiResponse::error("No connection info")),
+        };
+
+        (pool, db_type, db_name)
+    };
+
+    let table_name_quoted = quote_identifier(&name, &db_type);
+    let sql = match payload.alter_type {
+        AlterType::RenameTable => {
+            let new_name = match payload.new_name {
+                Some(n) => n,
+                None => return Json(ApiResponse::error("New name required for Rename Table")),
+            };
+            if !is_valid_identifier(&new_name) {
+                return Json(ApiResponse::error("Invalid new table name"));
+            }
+            let new_name_quoted = quote_identifier(&new_name, &db_type);
+            format!(
+                "ALTER TABLE {} RENAME TO {}",
+                table_name_quoted, new_name_quoted
+            )
+        }
+        AlterType::AddColumn => {
+            let col_def = match payload.column_definition {
+                Some(c) => c,
+                None => return Json(ApiResponse::error("Column definition required for Add Column")),
+            };
+            if !is_valid_identifier(&col_def.name) {
+                return Json(ApiResponse::error("Invalid column name"));
+            }
+            let name_quoted = quote_identifier(&col_def.name, &db_type);
+            
+            // Re-using type mapping logic 
+            let data_type = match col_def.data_type.to_uppercase().as_str() {
+                "TEXT" | "STRING" => "TEXT",
+                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "BOOL" | "BOOLEAN" => match db_type {
+                    DbType::Postgres => "BOOLEAN",
+                    _ => "INTEGER",
+                },
+                "DATETIME" => match db_type {
+                    DbType::Postgres => "TIMESTAMP",
+                    _ => "DATETIME",
+                },
+                _ => "TEXT",
+            };
+            
+            let nullable = if col_def.nullable { "" } else { "NOT NULL" };
+            format!(
+                "ALTER TABLE {} ADD COLUMN {} {} {}",
+                table_name_quoted, name_quoted, data_type, nullable
+            )
+        }
+        AlterType::DropColumn => {
+            let col_name = match payload.column_name {
+                Some(c) => c,
+                None => return Json(ApiResponse::error("Column name required for Drop Column")),
+            };
+            if !is_valid_identifier(&col_name) {
+                return Json(ApiResponse::error("Invalid column name"));
+            }
+            let col_name_quoted = quote_identifier(&col_name, &db_type);
+            format!("ALTER TABLE {} DROP COLUMN {}", table_name_quoted, col_name_quoted)
+        }
+    };
+    match sqlx::query(&sql).execute(&pool).await {
+        Ok(_) => Json(ApiResponse::success(json!({
+            "message": "Table altered successfully",
+            "table": name,
+            "action": format!("{:?}", payload.alter_type)
+        }))),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
+    }
 }
 
 /// DELETE /api/schema/table/{name} - Drop table
-async fn drop_table(Path(name): Path<String>) -> Json<ApiResponse<Value>> {
-    // TODO: Implement drop table
-    Json(ApiResponse::success(
-        json!({ "message": "Not implemented", "table": name }),
-    ))
+async fn drop_table(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Json<ApiResponse<Value>> {
+    if !is_valid_identifier(&name) {
+        return Json(ApiResponse::error("Invalid table name"));
+    }
+
+    let (pool, db_type, db_name) = {
+        let state_read = state.read().unwrap();
+
+        let pool = match &state_read.pool {
+            Some(p) => p.clone(),
+            None => return Json(ApiResponse::error("Not connected to database")),
+        };
+
+        let (db_type, db_name) = match &state_read.connection_info {
+            Some(info) => (info.db_type.clone(), info.database.clone()),
+            None => return Json(ApiResponse::error("No connection info")),
+        };
+
+        (pool, db_type, db_name)
+    };
+
+    let table_name_quoted = quote_identifier(&name, &db_type);
+    let sql = format!("DROP TABLE {}", table_name_quoted);
+
+    match sqlx::query(&sql).execute(&pool).await {
+        Ok(_) => Json(ApiResponse::success(json!({
+            "message": "Table dropped successfully",
+            "table": name
+        }))),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
+    }
 }
