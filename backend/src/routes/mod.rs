@@ -11,8 +11,8 @@ use crate::state::AppState;
 pub fn api_routes(state: AppState) -> Router {
     Router::new()
         .merge(connection::routes(state.clone()))
-        .nest("/database", database::routes())
+        .nest("/database", database::routes(state.clone()))
         .nest("/schema", schema::routes(state.clone()))
         .nest("/table", data::routes(state.clone()))
-        .nest("/query", query::routes())
+        .nest("/query", query::routes(state.clone()))
 }
