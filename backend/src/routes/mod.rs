@@ -6,13 +6,13 @@ pub mod schema;
 
 use axum::Router;
 
-use crate::state::AppState;
+use crate::state::SessionStore;
 
-pub fn api_routes(state: AppState) -> Router {
+pub fn api_routes(session_store: SessionStore) -> Router {
     Router::new()
-        .nest("/", connection::routes(state.clone()))
-        .nest("/database", database::routes())
-        .nest("/schema", schema::routes(state.clone()))
-        .nest("/table", data::routes())
-        .nest("/query", query::routes())
+        .merge(connection::routes(session_store.clone()))
+        .nest("/database", database::routes(session_store.clone()))
+        .nest("/schema", schema::routes(session_store.clone()))
+        .nest("/table", data::routes(session_store.clone()))
+        .nest("/query", query::routes(session_store.clone()))
 }

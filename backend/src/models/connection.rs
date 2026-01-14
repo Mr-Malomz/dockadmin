@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DbType {
     Postgres,
     Mysql,
@@ -19,7 +20,7 @@ pub struct ConnectRequest {
 
 #[derive(Debug, Serialize)]
 pub struct ConnectResponse {
-    pub success: bool,
+    pub token: String,
     pub database: String,
     pub db_type: DbType,
 }
