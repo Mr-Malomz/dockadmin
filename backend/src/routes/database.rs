@@ -1,30 +1,24 @@
-use axum::{Json, Router, extract::State, routing::get};
+use axum::{Json, Router, routing::get};
 use serde_json::{Value, json};
-use sqlx::{Column, Row};
+use sqlx::Row;
 
 use crate::{
+    auth::AuthSession,
     models::{ApiResponse, DbType},
-    state::AppState,
+    state::SessionStore,
 };
 
-pub fn routes(state: AppState) -> Router {
-    Router::new().route("/info", get(info)).with_state(state)
+pub fn routes(session_store: SessionStore) -> Router {
+    Router::new()
+        .route("/info", get(info))
+        .with_state(session_store)
 }
 
 /// GET /api/database/info - Get database version, size, charset, etc.
-async fn info(State(state): State<AppState>) -> Json<ApiResponse<Value>> {
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-        (pool, db_type, db_name)
-    };
+async fn info(AuthSession(session): AuthSession) -> Json<ApiResponse<Value>> {
+    let pool = session.pool;
+    let db_type = session.db_type;
+    let db_name = session.database;
 
     // Get database version
     let version_sql = match db_type {
@@ -52,10 +46,7 @@ async fn info(State(state): State<AppState>) -> Json<ApiResponse<Value>> {
                 .to_string()
         }
     };
-    let table_count: i64 = match sqlx::query(&table_count_sql.to_string())
-        .fetch_one(&pool)
-        .await
-    {
+    let table_count: i64 = match sqlx::query(&table_count_sql).fetch_one(&pool).await {
         Ok(row) => row.try_get(0).unwrap_or(0),
         Err(_) => 0,
     };

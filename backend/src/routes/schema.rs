@@ -1,20 +1,22 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::Path,
     routing::{delete, get, post, put},
 };
 use serde_json::{Value, json};
 use sqlx::Row;
 
 use crate::{
+    auth::AuthSession,
     models::{
-        AlterTableRequest, AlterType, ApiResponse, ColumnInfo, CreateTableRequest, DbType, ForeignKeyInfo, IndexInfo, TableInfo
+        AlterTableRequest, AlterType, ApiResponse, ColumnInfo, CreateTableRequest, DbType,
+        ForeignKeyInfo, IndexInfo, TableInfo,
     },
     sql_utils::{is_valid_identifier, quote_identifier},
-    state::AppState,
+    state::SessionStore,
 };
 
-pub fn routes(state: AppState) -> Router {
+pub fn routes(session_store: SessionStore) -> Router {
     Router::new()
         // Read operations
         .route("/tables", get(list_tables))
@@ -25,27 +27,14 @@ pub fn routes(state: AppState) -> Router {
         .route("/table", post(create_table))
         .route("/table/{name}", put(alter_table))
         .route("/table/{name}", delete(drop_table))
-        .with_state(state)
+        .with_state(session_store)
 }
 
 /// GET /api/schema/tables - List all tables
-async fn list_tables(State(state): State<AppState>) -> Json<ApiResponse<Value>> {
-    // Extract data from state in a block expression so the lock is dropped before await
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Value>> {
+    let pool = session.pool;
+    let db_type = session.db_type;
+    let db_name = session.database;
 
     let query = match db_type {
         DbType::Postgres => format!(
@@ -103,24 +92,12 @@ async fn list_tables(State(state): State<AppState>) -> Json<ApiResponse<Value>> 
 
 /// GET /api/schema/table/{name} - Get table structure
 async fn get_table(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
 ) -> Json<ApiResponse<Value>> {
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
+    let db_name = session.database;
 
     // Build query with proper escaping for each database type
     let (query, use_bind) = match db_type {
@@ -200,24 +177,12 @@ async fn get_table(
 
 /// GET /api/schema/table/{name}/indexes - Get table indexes
 async fn get_indexes(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
 ) -> Json<ApiResponse<Value>> {
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
+    let db_name = session.database;
 
     // We use an async block to allow using the `?` operator for error handling
     let result: Result<Vec<IndexInfo>, String> = async {
@@ -356,24 +321,12 @@ async fn get_indexes(
 
 /// GET /api/schema/table/{name}/foreign-keys - Get foreign key relationships
 async fn get_foreign_keys(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
 ) -> Json<ApiResponse<Value>> {
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
+    let db_name = session.database;
 
     let result: Result<Vec<ForeignKeyInfo>, String> = async {
         match db_type {
@@ -480,28 +433,15 @@ async fn get_foreign_keys(
 
 /// POST /api/schema/table - Create new table
 async fn create_table(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Json(payload): Json<CreateTableRequest>,
 ) -> Json<ApiResponse<Value>> {
     if !is_valid_identifier(&payload.name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
 
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
 
     let mut column_defs = Vec::new();
     for col in &payload.columns {
@@ -559,7 +499,7 @@ async fn create_table(
 
 /// PUT /api/schema/table/{name} - Alter table structure
 async fn alter_table(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
     Json(payload): Json<AlterTableRequest>,
 ) -> Json<ApiResponse<Value>> {
@@ -567,21 +507,8 @@ async fn alter_table(
         return Json(ApiResponse::error("Invalid table name"));
     }
 
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
 
     let table_name_quoted = quote_identifier(&name, &db_type);
     let sql = match payload.alter_type {
@@ -602,14 +529,18 @@ async fn alter_table(
         AlterType::AddColumn => {
             let col_def = match payload.column_definition {
                 Some(c) => c,
-                None => return Json(ApiResponse::error("Column definition required for Add Column")),
+                None => {
+                    return Json(ApiResponse::error(
+                        "Column definition required for Add Column",
+                    ));
+                }
             };
             if !is_valid_identifier(&col_def.name) {
                 return Json(ApiResponse::error("Invalid column name"));
             }
             let name_quoted = quote_identifier(&col_def.name, &db_type);
-            
-            // Re-using type mapping logic 
+
+            // Re-using type mapping logic
             let data_type = match col_def.data_type.to_uppercase().as_str() {
                 "TEXT" | "STRING" => "TEXT",
                 "INT" | "INTEGER" | "NUMBER" => "INTEGER",
@@ -623,7 +554,7 @@ async fn alter_table(
                 },
                 _ => "TEXT",
             };
-            
+
             let nullable = if col_def.nullable { "" } else { "NOT NULL" };
             format!(
                 "ALTER TABLE {} ADD COLUMN {} {} {}",
@@ -639,7 +570,10 @@ async fn alter_table(
                 return Json(ApiResponse::error("Invalid column name"));
             }
             let col_name_quoted = quote_identifier(&col_name, &db_type);
-            format!("ALTER TABLE {} DROP COLUMN {}", table_name_quoted, col_name_quoted)
+            format!(
+                "ALTER TABLE {} DROP COLUMN {}",
+                table_name_quoted, col_name_quoted
+            )
         }
     };
     match sqlx::query(&sql).execute(&pool).await {
@@ -654,28 +588,15 @@ async fn alter_table(
 
 /// DELETE /api/schema/table/{name} - Drop table
 async fn drop_table(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
 ) -> Json<ApiResponse<Value>> {
     if !is_valid_identifier(&name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
 
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
 
     let table_name_quoted = quote_identifier(&name, &db_type);
     let sql = format!("DROP TABLE {}", table_name_quoted);

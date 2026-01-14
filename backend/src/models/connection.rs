@@ -20,7 +20,7 @@ pub struct ConnectRequest {
 
 #[derive(Debug, Serialize)]
 pub struct ConnectResponse {
-    pub success: bool,
+    pub token: String,
     pub database: String,
     pub db_type: DbType,
 }

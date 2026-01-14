@@ -1,28 +1,13 @@
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::{collections::HashMap, sync::Arc};
 
-use sqlx::AnyPool;
+use crate::models::Session;
 
-use crate::models::DbType;
+use tokio::sync::RwLock;
 
-#[derive(Clone)]
-pub struct ConnectionInfo {
-    pub database: String,
-    pub db_type: DbType,
-}
+// map session token to session objects
+pub type SessionStore = Arc<RwLock<HashMap<String, Session>>>;
 
-pub struct AppStateInner {
-    pub pool: Option<AnyPool>,
-    pub connection_info: Option<ConnectionInfo>,
-}
-
-// wrap in Arc for thread safety
-pub type AppState = Arc<RwLock<AppStateInner>>;
-
-// constructor function
-pub fn create_app_state() -> AppState {
-    Arc::new(RwLock::new(AppStateInner {
-        pool: None,
-        connection_info: None,
-    }))
+// create an empty session store
+pub fn create_session_store() -> SessionStore {
+    Arc::new(RwLock::new(HashMap::new()))
 }

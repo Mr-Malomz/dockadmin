@@ -1,21 +1,22 @@
-use axum::{Json, Router, extract::State, routing::post};
+use axum::{Json, Router, routing::post};
 use serde_json::{Value, json};
 use sqlx::{Column, Row};
 
 use crate::{
+    auth::AuthSession,
     models::{ApiResponse, QueryRequest},
-    state::AppState,
+    state::SessionStore,
 };
 
-pub fn routes(state: AppState) -> Router {
+pub fn routes(session_store: SessionStore) -> Router {
     Router::new()
         .route("/", post(execute_query))
-        .with_state(state)
+        .with_state(session_store)
 }
 
 /// POST /api/query - Execute raw SQL query
 async fn execute_query(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Json(payload): Json<QueryRequest>,
 ) -> Json<ApiResponse<Value>> {
     let sql = payload.sql.trim();
@@ -23,13 +24,8 @@ async fn execute_query(
     if sql.is_empty() {
         return Json(ApiResponse::error("SQL query cannot be empty"));
     }
-    let pool = {
-        let state_read = state.read().unwrap();
-        match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        }
-    };
+
+    let pool = session.pool;
 
     // detect if it's a SELECT query
     let is_select = sql.to_uppercase().trim_start().starts_with("SELECT");

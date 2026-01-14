@@ -1,29 +1,30 @@
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query},
     routing::{delete, get, post, put},
 };
 use serde_json::{Value, json};
 use sqlx::{Column, Row};
 
 use crate::{
+    auth::AuthSession,
     models::{ApiResponse, DbType, PaginationParams},
     sql_utils::{is_valid_identifier, quote_identifier},
-    state::AppState,
+    state::SessionStore,
 };
 
-pub fn routes(state: AppState) -> Router {
+pub fn routes(session_store: SessionStore) -> Router {
     Router::new()
         .route("/{name}", get(read_rows))
         .route("/{name}", post(insert_row))
         .route("/{name}/{id}", put(update_row))
         .route("/{name}/{id}", delete(delete_row))
-        .with_state(state)
+        .with_state(session_store)
 }
 
 /// GET /api/table/{name}?page=&limit=&sort=&order= - Read rows (paginated)
 async fn read_rows(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
     Query(params): Query<PaginationParams>,
 ) -> Json<ApiResponse<Value>> {
@@ -31,21 +32,8 @@ async fn read_rows(
         return Json(ApiResponse::error("Invalid table name"));
     }
 
-    let (pool, db_type, db_name) = {
-        let state_read = state.read().unwrap();
-
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-
-        (pool, db_type, db_name)
-    };
+    let pool = session.pool;
+    let db_type = session.db_type;
 
     let table_quoted = quote_identifier(&name, &db_type);
     let page = params.page.unwrap_or(1).max(1);
@@ -78,8 +66,7 @@ async fn read_rows(
                         let value: Value = row
                             .try_get_raw(i)
                             .ok()
-                            .and_then(|v| {
-                                // Try common types
+                            .and_then(|_| {
                                 if let Ok(s) = row.try_get::<String, _>(i) {
                                     return Some(json!(s));
                                 }
@@ -112,26 +99,17 @@ async fn read_rows(
 
 /// POST /api/table/{name} - Insert new row
 async fn insert_row(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path(name): Path<String>,
     Json(payload): Json<Value>,
 ) -> Json<ApiResponse<Value>> {
     if !is_valid_identifier(&name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
-    let (pool, db_type, _db_name) = {
-        let state_read = state.read().unwrap();
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-        (pool, db_type, db_name)
-    };
-    // Extract columns and values from JSON object
+
+    let pool = session.pool;
+    let db_type = session.db_type;
+
     let obj = match payload.as_object() {
         Some(o) => o,
         None => return Json(ApiResponse::error("Request body must be a JSON object")),
@@ -149,11 +127,10 @@ async fn insert_row(
         columns.push(quote_identifier(col, &db_type));
         let placeholder = match db_type {
             DbType::Postgres => format!("${}", i + 1),
-            _ => "?".to_string(), // MySQL and SQLite use ?
+            _ => "?".to_string(),
         };
         placeholders.push(placeholder);
 
-        // Convert JSON value to string for binding
         let val_str = match val {
             Value::String(s) => s.clone(),
             Value::Number(n) => n.to_string(),
@@ -186,25 +163,16 @@ async fn insert_row(
 
 /// PUT /api/table/{name}/{id} - Update row by ID
 async fn update_row(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path((name, id)): Path<(String, String)>,
     Json(payload): Json<Value>,
 ) -> Json<ApiResponse<Value>> {
     if !is_valid_identifier(&name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
-    let (pool, db_type, _db_name) = {
-        let state_read = state.read().unwrap();
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-        (pool, db_type, db_name)
-    };
+
+    let pool = session.pool;
+    let db_type = session.db_type;
 
     let obj = match payload.as_object() {
         Some(o) => o,
@@ -240,7 +208,6 @@ async fn update_row(
         values.push(val_str);
     }
 
-    // Add id as the last parameter
     let id_placeholder = match db_type {
         DbType::Postgres => format!("${}", values.len() + 1),
         _ => "?".to_string(),
@@ -268,24 +235,16 @@ async fn update_row(
 
 /// DELETE /api/table/{name}/{id} - Delete row by ID
 async fn delete_row(
-    State(state): State<AppState>,
+    AuthSession(session): AuthSession,
     Path((name, id)): Path<(String, String)>,
 ) -> Json<ApiResponse<Value>> {
     if !is_valid_identifier(&name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
-    let (pool, db_type, _db_name) = {
-        let state_read = state.read().unwrap();
-        let pool = match &state_read.pool {
-            Some(p) => p.clone(),
-            None => return Json(ApiResponse::error("Not connected to database")),
-        };
-        let (db_type, db_name) = match &state_read.connection_info {
-            Some(info) => (info.db_type.clone(), info.database.clone()),
-            None => return Json(ApiResponse::error("No connection info")),
-        };
-        (pool, db_type, db_name)
-    };
+
+    let pool = session.pool;
+    let db_type = session.db_type;
+
     let table_quoted = quote_identifier(&name, &db_type);
     let placeholder = match db_type {
         DbType::Postgres => "$1".to_string(),
