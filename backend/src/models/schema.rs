@@ -36,8 +36,14 @@ pub struct ForeignKeyInfo {
 pub struct ColumnDefinition {
     pub name: String,
     pub data_type: String,
+    #[serde(default)]
     pub nullable: bool,
+    #[serde(default)]
     pub is_primary_key: bool,
+    #[serde(default)]
+    pub unique: bool,
+    #[serde(default)]
+    pub auto_increment: bool,
     pub default_value: Option<String>,
 }
 

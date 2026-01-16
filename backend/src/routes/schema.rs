@@ -452,31 +452,76 @@ async fn create_table(
             )));
         }
         let name_quoted = quote_identifier(&col.name, &db_type);
-        // map simplified types to specific DB types
-        let data_type = match col.data_type.to_uppercase().as_str() {
-            "TEXT" | "STRING" => "TEXT",
-            "INT" | "INTEGER" | "NUMBER" => "INTEGER",
-            "BOOL" | "BOOLEAN" => match db_type {
-                DbType::Postgres => "BOOLEAN",
-                _ => "INTEGER", // MySQL/SQLite use 0/1 usually
-            },
-            "DATETIME" => match db_type {
-                DbType::Postgres => "TIMESTAMP",
-                _ => "DATETIME",
-            },
-            _ => "TEXT", // Fallback
-        };
-        let nullable = if col.nullable { "" } else { "NOT NULL" };
-        let primary = if col.is_primary_key {
-            // Note: SQLite uses "INTEGER PRIMARY KEY AUTOINCREMENT" explicitly for auto-ids
-            "PRIMARY KEY"
+
+        // Map simplified types to specific DB types, with auto-increment handling
+        let data_type = if col.auto_increment {
+            // Auto-increment types vary by database
+            match db_type {
+                DbType::Postgres => "SERIAL",
+                DbType::Mysql => "INT AUTO_INCREMENT",
+                DbType::Sqlite => "INTEGER", // SQLite uses INTEGER PRIMARY KEY for auto-inc
+            }
         } else {
-            ""
+            match col.data_type.to_uppercase().as_str() {
+                "TEXT" | "STRING" | "VARCHAR" => "TEXT",
+                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "BOOL" | "BOOLEAN" => match db_type {
+                    DbType::Postgres => "BOOLEAN",
+                    _ => "INTEGER", // MySQL/SQLite use 0/1 usually
+                },
+                "DATETIME" | "TIMESTAMP" => match db_type {
+                    DbType::Postgres => "TIMESTAMP",
+                    _ => "DATETIME",
+                },
+                "FLOAT" | "REAL" | "DOUBLE" => "REAL",
+                "UUID" => match db_type {
+                    DbType::Postgres => "UUID",
+                    _ => "TEXT",
+                },
+                _ => "TEXT", // Fallback
+            }
         };
-        column_defs.push(format!(
-            "{} {} {} {}",
-            name_quoted, data_type, nullable, primary
-        ));
+
+        // Build constraint clauses
+        let mut constraints = Vec::new();
+
+        // NOT NULL constraint
+        if !col.nullable {
+            constraints.push("NOT NULL".to_string());
+        }
+
+        // PRIMARY KEY constraint
+        if col.is_primary_key {
+            constraints.push("PRIMARY KEY".to_string());
+        }
+
+        // UNIQUE constraint (only if not already primary key)
+        if col.unique && !col.is_primary_key {
+            constraints.push("UNIQUE".to_string());
+        }
+
+        // DEFAULT value
+        if let Some(ref default_val) = col.default_value {
+            // Handle common defaults
+            let default_clause = match default_val.to_uppercase().as_str() {
+                "NULL" => "DEFAULT NULL".to_string(),
+                "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
+                    DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                    DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                    DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                },
+                "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
+                _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
+            };
+            constraints.push(default_clause);
+        }
+
+        let constraints_str = constraints.join(" ");
+        column_defs.push(
+            format!("{} {} {}", name_quoted, data_type, constraints_str)
+                .trim()
+                .to_string(),
+        );
     }
 
     // construct SQL
