@@ -1,0 +1,112 @@
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import type { ColumnInfo, TableRow } from '@/models';
+import { useState, useEffect } from 'react';
+
+interface EditRowModalProps {
+	open: boolean;
+	onClose: () => void;
+	tableName: string;
+	columns: ColumnInfo[];
+	rowData: TableRow | null;
+	onSave: (data: Record<string, string>) => void;
+}
+
+export function EditRowModal({
+	open,
+	onClose,
+	tableName,
+	columns,
+	rowData,
+	onSave,
+}: EditRowModalProps) {
+	const [formData, setFormData] = useState<Record<string, string>>({});
+
+	// Populate form with row data when modal opens
+	useEffect(() => {
+		if (open && rowData) {
+			const initialData: Record<string, string> = {};
+			columns.forEach((col) => {
+				const value = rowData[col.name];
+				initialData[col.name] =
+					value !== null && value !== undefined ? String(value) : '';
+			});
+			setFormData(initialData);
+		}
+	}, [open, rowData, columns]);
+
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		onSave(formData);
+		onClose();
+	};
+
+	// Filter out auto-generated columns like id with default values
+	const editableColumns = columns.filter(
+		(col) => !col.isPrimaryKey || col.defaultValue === null
+	);
+
+	return (
+		<Dialog open={open} onOpenChange={onClose}>
+			<DialogContent className='bg-duck-dark-700 border-duck-dark-400/50 text-duck-white-50 max-w-lg p-0 gap-0'>
+				{/* Header */}
+				<div className='p-6 border-b border-duck-dark-400/30'>
+					<h2 className='text-duck-base font-normal text-duck-white-50'>
+						Edit row in{' '}
+						<span className='text-duck-primary-500'>
+							{tableName}
+						</span>{' '}
+						table
+					</h2>
+				</div>
+
+				<form onSubmit={handleSubmit}>
+					{/* Form Fields */}
+					<div className='p-6 space-y-4'>
+						{editableColumns.map((column) => (
+							<div key={column.name} className='space-y-2'>
+								<label className='flex items-center gap-2 text-duck-white-700 text-duck-sm font-normal'>
+									{column.name}
+									<span className='text-duck-xxs px-1.5 py-0.5 rounded bg-duck-dark-500 text-duck-white-700 border border-duck-dark-400/50'>
+										{column.dataType}
+									</span>
+								</label>
+								<Input
+									type='text'
+									placeholder={column.name}
+									value={formData[column.name] || ''}
+									onChange={(e) =>
+										setFormData((prev) => ({
+											...prev,
+											[column.name]: e.target.value,
+										}))
+									}
+									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
+								/>
+							</div>
+						))}
+					</div>
+
+					{/* Footer with Cancel and Save buttons */}
+					<DialogFooter className='p-6 border-t border-duck-dark-400/30 gap-2'>
+						<Button
+							type='button'
+							variant='outline'
+							onClick={onClose}
+							className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
+						>
+							Cancel
+						</Button>
+						<Button
+							type='submit'
+							className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
+						>
+							Save Changes
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}

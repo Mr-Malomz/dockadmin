@@ -9,6 +9,12 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
 import { Settings, X, Plus, ArrowRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import {
@@ -60,8 +66,8 @@ export function CreateTableModal({
 			dataType: 'int8',
 			isPrimaryKey: true,
 			nullable: false,
-			defaultValue: 'gen_random_uuid()', // Common default
-			unique: true,
+			defaultValue: 'gen_random_uuid()',
+			unique: false,
 		},
 		{
 			name: 'created_at',
@@ -161,7 +167,7 @@ export function CreateTableModal({
 					<h2 className='text-duck-base font-normal text-duck-white-50 flex items-center gap-2'>
 						Create a new table under{' '}
 						<span className='px-2 py-0.5 rounded bg-duck-dark-500 text-duck-white-500 text-duck-xs font-mono border border-duck-dark-400/50'>
-							public
+						"REPLACE WITH DB NAME"
 						</span>
 					</h2>
 				</div>
@@ -283,7 +289,12 @@ export function CreateTableModal({
 												)
 											}
 											placeholder='NULL'
-											className='h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
+											disabled={col.nullable}
+											className={`h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm ${
+												col.nullable
+													? 'opacity-50 cursor-not-allowed'
+													: ''
+											}`}
 										/>
 
 										{/* Primary Key Checkbox */}
@@ -303,14 +314,83 @@ export function CreateTableModal({
 
 										{/* Actions */}
 										<div className='flex items-center justify-end gap-1'>
-											<Button
-												type='button'
-												variant='ghost'
-												size='icon'
-												className='h-7 w-7 text-duck-white-700 hover:text-duck-white-500 hover:bg-duck-dark-500'
-											>
-												<Settings size={14} />
-											</Button>
+											<DropdownMenu modal={false}>
+												<DropdownMenuTrigger asChild>
+													<Button
+														type='button'
+														variant='ghost'
+														size='icon'
+														className='h-7 w-7 text-duck-white-700 hover:text-duck-white-500 hover:bg-duck-dark-500 relative'
+													>
+														<Settings size={14} />
+														{/* Indicator dot when extra options are set */}
+														{(col.unique ||
+															col.nullable) && (
+															<span className='absolute -top-0.5 -right-0.5 w-2 h-2 bg-duck-primary-500 rounded-full' />
+														)}
+													</Button>
+												</DropdownMenuTrigger>
+												<DropdownMenuContent
+													align='end'
+													className='w-56 bg-duck-dark-600 border-duck-dark-400/50 p-2'
+												>
+													{/* Unique Toggle */}
+													<div className='flex items-center justify-between py-2 px-1'>
+														<div>
+															<div className='text-duck-sm text-duck-white-500 font-normal'>
+																Unique
+															</div>
+															<div className='text-duck-xs text-duck-white-700'>
+																Enforce unique
+																values
+															</div>
+														</div>
+														<Switch
+															checked={col.unique}
+															onCheckedChange={(
+																checked
+															) =>
+																updateColumn(
+																	index,
+																	'unique',
+																	checked
+																)
+															}
+															className='data-[state=checked]:bg-duck-primary-500'
+														/>
+													</div>
+
+													{/* Nullable Toggle - hidden for primary keys */}
+													{!col.isPrimaryKey && (
+														<div className='flex items-center justify-between py-2 px-1'>
+															<div>
+																<div className='text-duck-sm text-duck-white-500 font-normal'>
+																	Nullable
+																</div>
+																<div className='text-duck-xs text-duck-white-700'>
+																	Allow NULL
+																	values
+																</div>
+															</div>
+															<Switch
+																checked={
+																	col.nullable
+																}
+																onCheckedChange={(
+																	checked
+																) =>
+																	updateColumn(
+																		index,
+																		'nullable',
+																		checked
+																	)
+																}
+																className='data-[state=checked]:bg-duck-primary-500'
+															/>
+														</div>
+													)}
+												</DropdownMenuContent>
+											</DropdownMenu>
 											<Button
 												type='button'
 												variant='ghost'

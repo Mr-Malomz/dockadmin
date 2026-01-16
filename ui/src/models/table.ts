@@ -39,9 +39,9 @@ export const INITIAL_NEW_COLUMN: NewColumnDefinition = {
     name: '',
     description: '',
     dataType: '',
-    defaultValue: 'NULL',
+    defaultValue: '',
     isPrimaryKey: false,
-    nullable: true,
+    nullable: false,
     unique: false,
 };
 

@@ -1,11 +1,14 @@
 import { Button } from '@/components/ui/button';
 import AddIcon from '@/assets/svgs/AddIcon';
+import EditIcon from '@/assets/svgs/EditIcon';
+import DeleteIcon from '@/assets/svgs/DeleteIcon';
 
 interface DataGridHeaderProps {
 	tableName: string;
 	selectedCount: number;
 	onAddColumn: () => void;
 	onAddRow: () => void;
+	onEditRow: () => void;
 	onDeleteRows: () => void;
 }
 
@@ -14,9 +17,11 @@ export function DataGridHeader({
 	selectedCount,
 	onAddColumn,
 	onAddRow,
+	onEditRow,
 	onDeleteRows,
 }: DataGridHeaderProps) {
 	const hasSelection = selectedCount > 0;
+	const isSingleSelection = selectedCount === 1;
 
 	return (
 		<div className='bg-duck-dark-700 shrink-0'>
@@ -30,13 +35,29 @@ export function DataGridHeader({
 			{/* Actions Row */}
 			<div className='flex items-center justify-end gap-2 px-4 py-2 border-b border-duck-dark-400/30 bg-duck-dark-500'>
 				{hasSelection ? (
-					<Button
-						onClick={onDeleteRows}
-						variant='outline'
-						className='gap-2 h-8 bg-transparent border-red-500/50 text-red-400 hover:bg-red-500/20 text-duck-sm'
-					>
-						Delete {selectedCount} Row{selectedCount > 1 ? 's' : ''}
-					</Button>
+					<>
+						{/* Edit button - only shown for single row selection */}
+						{isSingleSelection && (
+							<Button
+								onClick={onEditRow}
+								variant='outline'
+								className='gap-2 h-8 bg-transparent border-duck-primary-500/50 text-duck-primary-400 hover:bg-duck-primary-500/20 text-duck-sm'
+							>
+								<EditIcon className='text-duck-primary-400' />
+								Edit Row
+							</Button>
+						)}
+						{/* Delete button */}
+						<Button
+							onClick={onDeleteRows}
+							variant='outline'
+							className='gap-2 h-8 bg-transparent border-red-500/50 text-red-400 hover:bg-red-500/20 text-duck-sm'
+						>
+							<DeleteIcon className='text-red-400' />
+							Delete {selectedCount} Row
+							{selectedCount > 1 ? 's' : ''}
+						</Button>
+					</>
 				) : (
 					<>
 						<Button

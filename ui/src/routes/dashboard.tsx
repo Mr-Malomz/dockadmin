@@ -12,8 +12,10 @@ import {
 } from '@/components/data';
 import {
 	AddRowModal,
-	AddColumnModal,
+	ColumnModal,
 	CreateTableModal,
+	EditRowModal,
+	DeleteConfirmModal,
 } from '@/components/modals';
 import type {
 	TableInfo,
@@ -137,6 +139,16 @@ function DashboardPage() {
 	const [addRowModalOpen, setAddRowModalOpen] = useState(false);
 	const [addColumnModalOpen, setAddColumnModalOpen] = useState(false);
 	const [createTableModalOpen, setCreateTableModalOpen] = useState(false);
+	const [editRowModalOpen, setEditRowModalOpen] = useState(false);
+	const [editingRowData, setEditingRowData] = useState<TableRow | null>(null);
+	const [editingColumnData, setEditingColumnData] =
+		useState<ColumnInfo | null>(null);
+	const [deleteConfirmModalOpen, setDeleteConfirmModalOpen] = useState(false);
+	const [deleteColumnConfirmOpen, setDeleteColumnConfirmOpen] =
+		useState(false);
+	const [deletingColumnName, setDeletingColumnName] = useState<string | null>(
+		null
+	);
 	const [viewMode, setViewMode] = useState<ViewMode>('data');
 
 	// Mock connection info (would come from auth state)
@@ -184,8 +196,29 @@ function DashboardPage() {
 	};
 
 	const handleDeleteRows = () => {
+		setDeleteConfirmModalOpen(true);
+	};
+
+	const confirmDeleteRows = () => {
 		const count = selectedRows.size;
 		toast.success(`Deleted ${count} row${count > 1 ? 's' : ''}!`);
+		setSelectedRows(new Set());
+	};
+
+	const handleEditRow = () => {
+		if (selectedRows.size === 1) {
+			const rowIndex = Number(Array.from(selectedRows)[0]);
+			const rowData = MOCK_ROWS[rowIndex];
+			if (rowData) {
+				setEditingRowData(rowData);
+				setEditRowModalOpen(true);
+			}
+		}
+	};
+
+	const handleSaveEditedRow = (data: Record<string, string>) => {
+		console.log('Saving edited row:', data);
+		toast.success('Row updated successfully!');
 		setSelectedRows(new Set());
 	};
 
@@ -195,16 +228,34 @@ function DashboardPage() {
 	};
 
 	const handleAddColumn = (column: NewColumnDefinition) => {
-		console.log('Adding column:', column);
-		toast.success(`Column "${column.name}" added successfully!`);
+		if (editingColumnData) {
+			console.log('Updating column:', column);
+			toast.success(`Column "${column.name}" updated successfully!`);
+			setEditingColumnData(null);
+		} else {
+			console.log('Adding column:', column);
+			toast.success(`Column "${column.name}" added successfully!`);
+		}
 	};
 
 	const handleEditColumn = (columnName: string) => {
-		toast.info(`Edit column "${columnName}" - Coming soon!`);
+		const columnData = MOCK_COLUMNS.find((col) => col.name === columnName);
+		if (columnData) {
+			setEditingColumnData(columnData);
+			setAddColumnModalOpen(true);
+		}
 	};
 
 	const handleDeleteColumn = (columnName: string) => {
-		toast.success(`Column "${columnName}" deleted!`);
+		setDeletingColumnName(columnName);
+		setDeleteColumnConfirmOpen(true);
+	};
+
+	const confirmDeleteColumn = () => {
+		if (deletingColumnName) {
+			toast.success(`Column "${deletingColumnName}" deleted!`);
+			setDeletingColumnName(null);
+		}
 	};
 
 	const handleCreateTable = (
@@ -293,6 +344,7 @@ function DashboardPage() {
 						tableName={selectedTable}
 						selectedCount={selectedRows.size}
 						onAddColumn={() => setAddColumnModalOpen(true)}
+						onEditRow={handleEditRow}
 						onAddRow={() => setAddRowModalOpen(true)}
 						onDeleteRows={handleDeleteRows}
 					/>
@@ -330,11 +382,49 @@ function DashboardPage() {
 						onSave={handleAddRow}
 					/>
 
-					<AddColumnModal
+					<ColumnModal
 						open={addColumnModalOpen}
-						onClose={() => setAddColumnModalOpen(false)}
+						onClose={() => {
+							setAddColumnModalOpen(false);
+							setEditingColumnData(null);
+						}}
 						tableName={selectedTable}
 						onSave={handleAddColumn}
+						editingColumn={editingColumnData}
+					/>
+
+					<EditRowModal
+						open={editRowModalOpen}
+						onClose={() => {
+							setEditRowModalOpen(false);
+							setEditingRowData(null);
+						}}
+						tableName={selectedTable}
+						columns={MOCK_COLUMNS}
+						rowData={editingRowData}
+						onSave={handleSaveEditedRow}
+					/>
+
+					<DeleteConfirmModal
+						open={deleteConfirmModalOpen}
+						onClose={() => setDeleteConfirmModalOpen(false)}
+						itemType='row'
+						itemCount={selectedRows.size}
+						tableName={selectedTable}
+						onConfirm={confirmDeleteRows}
+					/>
+
+					<DeleteConfirmModal
+						open={deleteColumnConfirmOpen}
+						onClose={() => {
+							setDeleteColumnConfirmOpen(false);
+							setDeletingColumnName(null);
+						}}
+						itemType='column'
+						itemCount={1}
+						tableName={selectedTable}
+						itemName={deletingColumnName || undefined}
+						onConfirm={confirmDeleteColumn}
 					/>
 				</>
 			)}

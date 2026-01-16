@@ -14,6 +14,8 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ChevronDown } from 'lucide-react';
+import EditIcon from '@/assets/svgs/EditIcon';
+import DeleteIcon from '@/assets/svgs/DeleteIcon';
 import type { ColumnInfo, TableRow as RowData } from '@/models';
 
 interface DataGridProps {
@@ -88,16 +90,18 @@ export function DataGrid({
 												onClick={() =>
 													onEditColumn(column.name)
 												}
-												className='text-duck-white-500 text-duck-sm focus:bg-duck-dark-500 focus:text-duck-white-50 cursor-pointer'
+												className='text-duck-white-500 text-duck-sm focus:bg-duck-dark-500 focus:text-duck-white-50 cursor-pointer gap-2'
 											>
+												<EditIcon className='text-duck-white-500' />
 												Edit Column
 											</DropdownMenuItem>
 											<DropdownMenuItem
 												onClick={() =>
 													onDeleteColumn(column.name)
 												}
-												className='text-red-400 text-duck-sm focus:bg-red-500/20 focus:text-red-400 cursor-pointer'
+												className='text-red-400 text-duck-sm focus:bg-red-500/20 focus:text-red-400 cursor-pointer gap-2'
 											>
+												<DeleteIcon className='text-red-400' />
 												Delete Column
 											</DropdownMenuItem>
 										</DropdownMenuContent>

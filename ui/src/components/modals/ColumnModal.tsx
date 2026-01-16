@@ -11,33 +11,53 @@ import {
 import { Switch } from '@/components/ui/switch';
 import {
 	type NewColumnDefinition,
+	type ColumnInfo,
 	INITIAL_NEW_COLUMN,
 	COLUMN_TYPES,
 } from '@/models';
 import { useState, useEffect } from 'react';
 
-interface AddColumnModalProps {
+interface ColumnModalProps {
 	open: boolean;
 	onClose: () => void;
 	tableName: string;
 	onSave: (column: NewColumnDefinition) => void;
+	/** If provided, the modal will be in "edit" mode with pre-filled data */
+	editingColumn?: ColumnInfo | null;
 }
 
-export function AddColumnModal({
+export function ColumnModal({
 	open,
 	onClose,
 	tableName,
 	onSave,
-}: AddColumnModalProps) {
+	editingColumn,
+}: ColumnModalProps) {
 	const [column, setColumn] =
 		useState<NewColumnDefinition>(INITIAL_NEW_COLUMN);
 
-	// Reset form when modal opens
+	const isEditMode = !!editingColumn;
+
+	// Reset or populate form when modal opens
 	useEffect(() => {
 		if (open) {
-			setColumn(INITIAL_NEW_COLUMN);
+			if (editingColumn) {
+				// Edit mode: populate with existing column data
+				setColumn({
+					name: editingColumn.name,
+					description: '',
+					dataType: editingColumn.dataType,
+					defaultValue: editingColumn.defaultValue || '',
+					isPrimaryKey: editingColumn.isPrimaryKey,
+					nullable: editingColumn.nullable,
+					unique: false, // ColumnInfo doesn't have unique, default to false
+				});
+			} else {
+				// Add mode: reset to initial values
+				setColumn(INITIAL_NEW_COLUMN);
+			}
 		}
-	}, [open]);
+	}, [open, editingColumn]);
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -58,7 +78,7 @@ export function AddColumnModal({
 				{/* Header */}
 				<div className='p-6 border-b border-duck-dark-400/30'>
 					<h2 className='text-duck-base font-normal text-duck-white-50'>
-						Add new column to{' '}
+						{isEditMode ? 'Edit column in' : 'Add new column to'}{' '}
 						<span className='text-duck-primary-500'>
 							{tableName}
 						</span>{' '}
@@ -251,7 +271,7 @@ export function AddColumnModal({
 							type='submit'
 							className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
 						>
-							Save
+							{isEditMode ? 'Save Changes' : 'Save'}
 						</Button>
 					</DialogFooter>
 				</form>
