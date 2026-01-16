@@ -1,9 +1,90 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Circular Std Font Family */
+@font-face {
+  font-family: 'Circular Std';
+  src: url('./assets/fonts/circularstd-regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Circular Std';
+  src: url('./assets/fonts/shellypalmer-circular-std-medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Circular Std';
+  src: url('./assets/fonts/CircularStd-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Circular Std';
+  src: url('./assets/fonts/CircularStd-Black.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* Duck Dark Color Palette */
+    --color-duck-dark-50: #e9e9e9;
+    --color-duck-dark-100: #bababa;
+    --color-duck-dark-200: #989898;
+    --color-duck-dark-300: #696969;
+    --color-duck-dark-400: #4c4c4c;
+    --color-duck-dark-500: #1f1f1f;
+    --color-duck-dark-600: #1c1c1c;
+    --color-duck-dark-700: #161616;
+    --color-duck-dark-800: #111111;
+    --color-duck-dark-900: #0d0d0d;
+  
+    /* Duck White Color Palette */
+    --color-duck-white-50: #ffffff;
+    --color-duck-white-100: #fdfdfd;
+    --color-duck-white-200: #fdfdfd;
+    --color-duck-white-300: #fcfcfc;
+    --color-duck-white-400: #fbfbfb;
+    --color-duck-white-500: #fafafa;
+    --color-duck-white-600: #e4e4e4;
+    --color-duck-white-700: #b2b2b2;
+    --color-duck-white-800: #8a8a8a;
+    --color-duck-white-900: #696969;
+  
+    /* Duck Primary Color Palette */
+    --color-duck-primary-50: #ecfaf4;
+    --color-duck-primary-100: #c3f0dc;
+    --color-duck-primary-200: #a6e9cb;
+    --color-duck-primary-300: #7ddfb3;
+    --color-duck-primary-400: #64d9a5;
+    --color-duck-primary-500: #3dcf8e;
+    --color-duck-primary-600: #38bc81;
+    --color-duck-primary-700: #2b9365;
+    --color-duck-primary-800: #22724e;
+    --color-duck-primary-900: #1a573c;
+  
+    /* Duck Font Sizes - use --text-* for text-* utility */
+    --text-duck-xxs: 0.625rem;
+    --text-duck-xs: 0.75rem;
+    --text-duck-ssm: 0.8125rem;
+    --text-duck-sm: 0.875rem;
+    --text-duck-base: 1rem;
+    --text-duck-lg: 1.125rem;
+    --text-duck-xl: 1.25rem;
+    --text-duck-2xl: 1.5rem;
+    --text-duck-3xl: 1.875rem;
+    --text-duck-4xl: 2.25rem;
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -119,5 +200,20 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: 'Circular Std', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
+}
+
+/* CodeMirror global styling */
+.cm-editor {
+  font-size: 12px !important;
+}
+
+.cm-editor .cm-content {
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+
+.cm-editor .cm-gutters {
+  font-size: 12px;
 }
