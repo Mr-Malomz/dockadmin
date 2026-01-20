@@ -45,8 +45,8 @@ interface CreateTableModalProps {
 	onSave: (
 		tableName: string,
 		columns: NewColumnDefinition[],
-		foreignKeys: ForeignKeyDefinition[]
-	) => void;
+		foreignKeys: ForeignKeyDefinition[],
+	) => void | Promise<void>;
 	availableTables?: TableInfo[]; // Tables available for FK references
 }
 
@@ -60,21 +60,13 @@ export function CreateTableModal({
 	const [description, setDescription] = useState('');
 	const [foreignKeys, setForeignKeys] = useState<ForeignKeyDefinition[]>([]);
 	const [columns, setColumns] = useState<NewColumnDefinition[]>([
-		// Default with ID and created_at columns like in the screenshot
+		// default with ID column only
 		{
 			name: 'id',
-			dataType: 'int8',
-			isPrimaryKey: true,
+			data_type: 'integer',
+			is_primary_key: true,
 			nullable: false,
-			defaultValue: 'gen_random_uuid()',
-			unique: false,
-		},
-		{
-			name: 'created_at',
-			dataType: 'timestamp',
-			isPrimaryKey: false,
-			nullable: false,
-			defaultValue: 'now()',
+			default_value: '',
 			unique: false,
 		},
 	]);
@@ -88,14 +80,8 @@ export function CreateTableModal({
 				{
 					...INITIAL_NEW_COLUMN,
 					name: 'id',
-					dataType: 'int8',
-					isPrimaryKey: true,
-				},
-				{
-					...INITIAL_NEW_COLUMN,
-					name: 'created_at',
-					dataType: 'timestamp',
-					defaultValue: 'now()',
+					data_type: 'integer',
+					is_primary_key: true,
 				},
 			]);
 			setForeignKeys([]);
@@ -115,16 +101,17 @@ export function CreateTableModal({
 	const updateColumn = (
 		index: number,
 		field: keyof NewColumnDefinition,
-		value: unknown
+		value: unknown,
 	) => {
 		const newColumns = [...columns];
 		newColumns[index] = { ...newColumns[index], [field]: value };
 		setColumns(newColumns);
 	};
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		onSave(tableName, columns, foreignKeys);
+		console.log('CreateTableModal handleSubmit called');
+		await onSave(tableName, columns, foreignKeys);
 		onClose();
 	};
 
@@ -142,7 +129,7 @@ export function CreateTableModal({
 	const updateForeignKey = (
 		index: number,
 		field: keyof ForeignKeyDefinition,
-		value: string
+		value: string,
 	) => {
 		const newFKs = [...foreignKeys];
 		newFKs[index] = { ...newFKs[index], [field]: value };
@@ -167,7 +154,7 @@ export function CreateTableModal({
 					<h2 className='text-duck-base font-normal text-duck-white-50 flex items-center gap-2'>
 						Create a new table under{' '}
 						<span className='px-2 py-0.5 rounded bg-duck-dark-500 text-duck-white-500 text-duck-xs font-mono border border-duck-dark-400/50'>
-						"REPLACE WITH DB NAME"
+							"REPLACE WITH DB NAME"
 						</span>
 					</h2>
 				</div>
@@ -244,7 +231,7 @@ export function CreateTableModal({
 												updateColumn(
 													index,
 													'name',
-													e.target.value
+													e.target.value,
 												)
 											}
 											placeholder='column_name'
@@ -253,12 +240,12 @@ export function CreateTableModal({
 
 										{/* Type Select */}
 										<Select
-											value={col.dataType}
+											value={col.data_type}
 											onValueChange={(value) =>
 												updateColumn(
 													index,
-													'dataType',
-													value
+													'data_type',
+													value,
 												)
 											}
 										>
@@ -280,12 +267,12 @@ export function CreateTableModal({
 
 										{/* Default Value Input */}
 										<Input
-											value={col.defaultValue || ''}
+											value={col.default_value || ''}
 											onChange={(e) =>
 												updateColumn(
 													index,
-													'defaultValue',
-													e.target.value
+													'default_value',
+													e.target.value,
 												)
 											}
 											placeholder='NULL'
@@ -300,12 +287,12 @@ export function CreateTableModal({
 										{/* Primary Key Checkbox */}
 										<div className='flex justify-center'>
 											<Checkbox
-												checked={col.isPrimaryKey}
+												checked={col.is_primary_key}
 												onCheckedChange={(checked) =>
 													updateColumn(
 														index,
-														'isPrimaryKey',
-														checked === true
+														'is_primary_key',
+														checked === true,
 													)
 												}
 												className='border-duck-dark-300 data-[state=checked]:bg-duck-primary-500 data-[state=checked]:border-duck-primary-500'
@@ -348,12 +335,12 @@ export function CreateTableModal({
 														<Switch
 															checked={col.unique}
 															onCheckedChange={(
-																checked
+																checked,
 															) =>
 																updateColumn(
 																	index,
 																	'unique',
-																	checked
+																	checked,
 																)
 															}
 															className='data-[state=checked]:bg-duck-primary-500'
@@ -361,7 +348,7 @@ export function CreateTableModal({
 													</div>
 
 													{/* Nullable Toggle - hidden for primary keys */}
-													{!col.isPrimaryKey && (
+													{!col.is_primary_key && (
 														<div className='flex items-center justify-between py-2 px-1'>
 															<div>
 																<div className='text-duck-sm text-duck-white-500 font-normal'>
@@ -377,12 +364,12 @@ export function CreateTableModal({
 																	col.nullable
 																}
 																onCheckedChange={(
-																	checked
+																	checked,
 																) =>
 																	updateColumn(
 																		index,
 																		'nullable',
-																		checked
+																		checked,
 																	)
 																}
 																className='data-[state=checked]:bg-duck-primary-500'
@@ -438,13 +425,13 @@ export function CreateTableModal({
 														updateForeignKey(
 															index,
 															'targetTable',
-															value
+															value,
 														);
 														// Auto-select 'id' when table changes
 														updateForeignKey(
 															index,
 															'targetColumn',
-															'id'
+															'id',
 														);
 													}}
 												>
@@ -465,7 +452,7 @@ export function CreateTableModal({
 																>
 																	{table.name}
 																</SelectItem>
-															)
+															),
 														)}
 													</SelectContent>
 												</Select>
@@ -481,7 +468,7 @@ export function CreateTableModal({
 														updateForeignKey(
 															index,
 															'targetColumn',
-															value
+															value,
 														)
 													}
 													disabled={!fk.targetTable}
@@ -491,7 +478,7 @@ export function CreateTableModal({
 													</SelectTrigger>
 													<SelectContent className='bg-duck-dark-600 border-duck-dark-400/50'>
 														{getTargetTableColumns(
-															fk.targetTable
+															fk.targetTable,
 														).map((col) => (
 															<SelectItem
 																key={col}
@@ -517,7 +504,7 @@ export function CreateTableModal({
 														updateForeignKey(
 															index,
 															'sourceColumn',
-															value
+															value,
 														)
 													}
 													disabled={!fk.targetTable}
@@ -528,7 +515,7 @@ export function CreateTableModal({
 													<SelectContent className='bg-duck-dark-600 border-duck-dark-400/50'>
 														{columns
 															.filter(
-																(c) => c.name
+																(c) => c.name,
 															)
 															.map((col) => (
 																<SelectItem
@@ -553,7 +540,7 @@ export function CreateTableModal({
 														updateForeignKey(
 															index,
 															'onDelete',
-															value
+															value,
 														)
 													}
 												>
@@ -601,7 +588,7 @@ export function CreateTableModal({
 													size='icon'
 													onClick={() =>
 														handleRemoveForeignKey(
-															index
+															index,
 														)
 													}
 													className='h-7 w-7 text-duck-white-700 hover:text-red-400 hover:bg-duck-dark-500 shrink-0'

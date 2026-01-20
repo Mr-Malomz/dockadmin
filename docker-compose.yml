@@ -1,18 +1,40 @@
 version: "3.9"
 
 services:
-  db:
+  # PostgreSQL database
+  postgres:
     image: postgres:16
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
-      POSTGRES_DB: app
+      POSTGRES_DB: testdb
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
+  # MySQL database
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin
+      MYSQL_DATABASE: testdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # DockAdmin backend (connects to any of the above)
   dockadmin:
     build: .
     ports:
       - "8080:8080"
     depends_on:
-      - db
+      - postgres
+      - mysql
+
+volumes:
+  postgres_data:
+  mysql_data:

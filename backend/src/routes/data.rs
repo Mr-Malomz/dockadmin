@@ -33,7 +33,7 @@ async fn read_rows(
     }
 
     let pool = session.pool;
-    let db_type = session.db_type;
+    let db_type = session.db_type.clone();
 
     let table_quoted = quote_identifier(&name, &db_type);
     let page = params.page.unwrap_or(1).max(1);
@@ -52,10 +52,62 @@ async fn read_rows(
         }
         _ => String::new(),
     };
-    let sql = format!(
-        "SELECT * FROM {} {} LIMIT {} OFFSET {}",
-        table_quoted, order_clause, limit, offset
-    );
+
+    // For MySQL, we need to cast columns to avoid DATETIME type issues with Any driver
+    let sql = if matches!(db_type, DbType::Mysql) {
+        // First get column names
+        let db_name = session.database.clone();
+        let cols_sql = format!(
+            "SELECT CAST(COLUMN_NAME AS CHAR) as col_name FROM information_schema.columns WHERE table_schema = '{}' AND table_name = '{}' ORDER BY ordinal_position",
+            db_name.replace("'", "''"),
+            name.replace("'", "''")
+        );
+        let col_rows = sqlx::query(&cols_sql).fetch_all(&pool).await;
+
+        match col_rows {
+            Ok(rows) => {
+                let column_casts: Vec<String> = rows
+                    .iter()
+                    .filter_map(|row| {
+                        row.try_get::<String, _>("col_name")
+                            .ok()
+                            .or_else(|| {
+                                row.try_get::<Vec<u8>, _>("col_name")
+                                    .ok()
+                                    .map(|b| String::from_utf8_lossy(&b).to_string())
+                            })
+                            .map(|col| format!("CAST(`{}` AS CHAR) as `{}`", col, col))
+                    })
+                    .collect();
+
+                if column_casts.is_empty() {
+                    format!(
+                        "SELECT * FROM {} {} LIMIT {} OFFSET {}",
+                        table_quoted, order_clause, limit, offset
+                    )
+                } else {
+                    format!(
+                        "SELECT {} FROM {} {} LIMIT {} OFFSET {}",
+                        column_casts.join(", "),
+                        table_quoted,
+                        order_clause,
+                        limit,
+                        offset
+                    )
+                }
+            }
+            Err(_) => format!(
+                "SELECT * FROM {} {} LIMIT {} OFFSET {}",
+                table_quoted, order_clause, limit, offset
+            ),
+        }
+    } else {
+        format!(
+            "SELECT * FROM {} {} LIMIT {} OFFSET {}",
+            table_quoted, order_clause, limit, offset
+        )
+    };
+
     match sqlx::query(&sql).fetch_all(&pool).await {
         Ok(rows) => {
             let data: Vec<Value> = rows
@@ -67,6 +119,7 @@ async fn read_rows(
                             .try_get_raw(i)
                             .ok()
                             .and_then(|_| {
+                                // Try common types first
                                 if let Ok(s) = row.try_get::<String, _>(i) {
                                     return Some(json!(s));
                                 }
@@ -78,6 +131,11 @@ async fn read_rows(
                                 }
                                 if let Ok(b) = row.try_get::<bool, _>(i) {
                                     return Some(json!(b));
+                                }
+                                // For MySQL DATETIME/BLOB types, try bytes and convert to string
+                                if let Ok(bytes) = row.try_get::<Vec<u8>, _>(i) {
+                                    let s = String::from_utf8_lossy(&bytes).to_string();
+                                    return Some(json!(s));
                                 }
                                 None
                             })

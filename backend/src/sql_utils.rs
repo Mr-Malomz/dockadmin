@@ -26,6 +26,7 @@ pub fn quote_identifier(name: &str, db_type: &DbType) -> String {
 }
 
 /// Escapes a string value for use in a SQL string literal.
+#[allow(dead_code)]
 pub fn escape_string_literal(value: &str, db_type: &DbType) -> String {
     match db_type {
         DbType::Postgres => {
@@ -61,10 +62,7 @@ mod tests {
     #[test]
     fn test_quote_identifier() {
         let name = "my_table";
-        assert_eq!(
-            quote_identifier(name, &DbType::Postgres),
-            "\"my_table\""
-        );
+        assert_eq!(quote_identifier(name, &DbType::Postgres), "\"my_table\"");
         assert_eq!(quote_identifier(name, &DbType::Mysql), "`my_table`");
 
         // Test escaping
@@ -82,9 +80,6 @@ mod tests {
             escape_string_literal(value, &DbType::Postgres),
             "'O''Reilly'"
         );
-        assert_eq!(
-            escape_string_literal(value, &DbType::Mysql),
-            "'O''Reilly'"
-        );
+        assert_eq!(escape_string_literal(value, &DbType::Mysql), "'O''Reilly'");
     }
 }

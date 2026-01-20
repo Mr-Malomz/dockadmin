@@ -46,9 +46,9 @@ export function ColumnModal({
 				setColumn({
 					name: editingColumn.name,
 					description: '',
-					dataType: editingColumn.dataType,
-					defaultValue: editingColumn.defaultValue || '',
-					isPrimaryKey: editingColumn.isPrimaryKey,
+					data_type: editingColumn.data_type,
+					default_value: editingColumn.default_value || '',
+					is_primary_key: editingColumn.is_primary_key,
 					nullable: editingColumn.nullable,
 					unique: false, // ColumnInfo doesn't have unique, default to false
 				});
@@ -122,7 +122,7 @@ export function ColumnModal({
 									onChange={(e) =>
 										updateColumn(
 											'description',
-											e.target.value
+											e.target.value,
 										)
 									}
 									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
@@ -144,9 +144,9 @@ export function ColumnModal({
 									Type
 								</label>
 								<Select
-									value={column.dataType}
+									value={column.data_type}
 									onValueChange={(value) =>
-										updateColumn('dataType', value)
+										updateColumn('data_type', value)
 									}
 								>
 									<SelectTrigger className='w-full h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800'>
@@ -173,11 +173,11 @@ export function ColumnModal({
 								<Input
 									type='text'
 									placeholder='NULL'
-									value={column.defaultValue}
+									value={column.default_value}
 									onChange={(e) =>
 										updateColumn(
-											'defaultValue',
-											e.target.value
+											'default_value',
+											e.target.value,
 										)
 									}
 									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
@@ -197,9 +197,9 @@ export function ColumnModal({
 							{/* Primary Key */}
 							<div className='flex items-start gap-3'>
 								<Switch
-									checked={column.isPrimaryKey}
+									checked={column.is_primary_key}
 									onCheckedChange={(checked) =>
-										updateColumn('isPrimaryKey', checked)
+										updateColumn('is_primary_key', checked)
 									}
 									className='data-[state=checked]:bg-duck-primary-500 mt-0.5'
 								/>

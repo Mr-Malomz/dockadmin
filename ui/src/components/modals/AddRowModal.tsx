@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { SmartInput } from '@/components/ui/SmartInput';
 import type { ColumnInfo } from '@/models';
 import { useState, useEffect } from 'react';
 
@@ -9,7 +9,7 @@ interface AddRowModalProps {
 	onClose: () => void;
 	tableName: string;
 	columns: ColumnInfo[];
-	onSave: (data: Record<string, string>) => void;
+	onSave: (data: Record<string, string>) => Promise<void>;
 }
 
 export function AddRowModal({
@@ -20,6 +20,7 @@ export function AddRowModal({
 	onSave,
 }: AddRowModalProps) {
 	const [formData, setFormData] = useState<Record<string, string>>({});
+	const [isSaving, setIsSaving] = useState(false);
 
 	// Reset form when modal opens
 	useEffect(() => {
@@ -29,18 +30,27 @@ export function AddRowModal({
 				initialData[col.name] = '';
 			});
 			setFormData(initialData);
+			setIsSaving(false);
 		}
 	}, [open, columns]);
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		onSave(formData);
-		onClose();
+		setIsSaving(true);
+		try {
+			await onSave(formData);
+			onClose();
+		} catch (error) {
+			console.error('Failed to add row:', error);
+			// Modal stays open on error
+		} finally {
+			setIsSaving(false);
+		}
 	};
 
 	// Filter out auto-generated columns like id
 	const editableColumns = columns.filter(
-		(col) => !col.isPrimaryKey || col.defaultValue === null
+		(col) => !col.is_primary_key || col.default_value === null,
 	);
 
 	return (
@@ -65,19 +75,19 @@ export function AddRowModal({
 								<label className='flex items-center gap-2 text-duck-white-700 text-duck-sm font-normal'>
 									{column.name}
 									<span className='text-duck-xxs px-1.5 py-0.5 rounded bg-duck-dark-500 text-duck-white-700 border border-duck-dark-400/50'>
-										{column.dataType}
+										{column.data_type}
 									</span>
 								</label>
-								<Input
-									type='text'
-									placeholder={column.name}
+								<SmartInput
+									dataType={column.data_type}
 									value={formData[column.name] || ''}
-									onChange={(e) =>
+									onChange={(value) =>
 										setFormData((prev) => ({
 											...prev,
-											[column.name]: e.target.value,
+											[column.name]: value,
 										}))
 									}
+									placeholder={column.name}
 									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
 								/>
 							</div>
@@ -91,14 +101,16 @@ export function AddRowModal({
 							variant='outline'
 							onClick={onClose}
 							className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
+							disabled={isSaving}
 						>
 							Cancel
 						</Button>
 						<Button
 							type='submit'
 							className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
+							disabled={isSaving}
 						>
-							Save
+							{isSaving ? 'Saving...' : 'Save'}
 						</Button>
 					</DialogFooter>
 				</form>

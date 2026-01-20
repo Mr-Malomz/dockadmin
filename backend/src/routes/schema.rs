@@ -18,12 +18,12 @@ use crate::{
 
 pub fn routes(session_store: SessionStore) -> Router {
     Router::new()
-        // Read operations
+        // read operations
         .route("/tables", get(list_tables))
         .route("/table/{name}", get(get_table))
         .route("/table/{name}/indexes", get(get_indexes))
         .route("/table/{name}/foreign-keys", get(get_foreign_keys))
-        // Write operations
+        // write operations
         .route("/table", post(create_table))
         .route("/table/{name}", put(alter_table))
         .route("/table/{name}", delete(drop_table))
@@ -99,7 +99,7 @@ async fn get_table(
     let db_type = session.db_type;
     let db_name = session.database;
 
-    // Build query with proper escaping for each database type
+    // build query with proper escaping for each database type
     let (query, use_bind) = match db_type {
         DbType::Postgres => (
             "SELECT column_name, data_type, is_nullable, column_default,
@@ -116,12 +116,16 @@ async fn get_table(
             true
         ),
         DbType::Mysql => {
-            // Escape single quotes for MySQL
+            // escape single quotes for MySQL
             let safe_db = db_name.replace("'", "''");
             let safe_name = name.replace("'", "''");
+            // note: MySQL information_schema returns some columns as BLOB, so we CAST them to VARCHAR
             (format!(
-                "SELECT column_name, data_type, is_nullable, column_default,
-                    CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary
+                "SELECT CAST(COLUMN_NAME AS CHAR) as `column_name`, 
+                    CAST(DATA_TYPE AS CHAR) as `data_type`, 
+                    CAST(IS_NULLABLE AS CHAR) as `is_nullable`, 
+                    CAST(COLUMN_DEFAULT AS CHAR) as `column_default`,
+                    CASE WHEN COLUMN_KEY = 'PRI' THEN true ELSE false END as `is_primary`
                  FROM information_schema.columns
                  WHERE table_schema = '{}' AND table_name = '{}'
                  ORDER BY ordinal_position",
@@ -138,7 +142,7 @@ async fn get_table(
         ),
     };
 
-    // Execute query with or without parameter binding
+    // execute query with or without parameter binding
     let result = if use_bind {
         sqlx::query(&query).bind(&name).fetch_all(&pool).await
     } else {
@@ -150,21 +154,45 @@ async fn get_table(
             let columns: Vec<ColumnInfo> = rows
                 .into_iter()
                 .map(|row| {
-                    // Normalize is_primary: Try bool (PG/MySQL), fallback to int relative to 1 (SQLite)
+                    // normalize is_primary: try bool (PG/MySQL), fallback to int relative to 1 (SQLite)
                     let is_primary_key: bool = row
                         .try_get("is_primary")
                         .unwrap_or_else(|_| row.try_get::<i64, _>("is_primary").unwrap_or(0) == 1);
 
-                    // Normalize is_nullable: PG/MySQL/SQLite query returns "YES"/"NO" (String)
-                    let is_nullable_str: String = row.try_get("is_nullable").unwrap_or_default();
+                    // normalize is_nullable: try lowercase first, then uppercase for MySQL
+                    let is_nullable_str: String = row
+                        .try_get("is_nullable")
+                        .or_else(|_| row.try_get("IS_NULLABLE"))
+                        .unwrap_or_default();
                     let nullable = is_nullable_str.eq_ignore_ascii_case("YES");
 
+                    // try lowercase first, then uppercase for MySQL compatibility
+                    let name: String = row
+                        .try_get("column_name")
+                        .or_else(|_| row.try_get("COLUMN_NAME"))
+                        .unwrap_or_default();
+
+                    // for MySQL, data_type may come as BLOB, so try bytes first then string
+                    let data_type: String = row
+                        .try_get::<String, _>("data_type")
+                        .or_else(|_| row.try_get::<String, _>("DATA_TYPE"))
+                        .or_else(|_| {
+                            // try as bytes and convert to string
+                            row.try_get::<Vec<u8>, _>("data_type")
+                                .or_else(|_| row.try_get::<Vec<u8>, _>(1))
+                                .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+                        })
+                        .unwrap_or_default();
+
                     ColumnInfo {
-                        name: row.try_get("column_name").unwrap_or_default(),
-                        data_type: row.try_get("data_type").unwrap_or_default(),
+                        name,
+                        data_type,
                         nullable,
                         is_primary_key,
-                        default_value: row.try_get("column_default").ok(),
+                        default_value: row
+                            .try_get("column_default")
+                            .or_else(|_| row.try_get("COLUMN_DEFAULT"))
+                            .ok(),
                     }
                 })
                 .collect();
@@ -184,7 +212,7 @@ async fn get_indexes(
     let db_type = session.db_type;
     let db_name = session.database;
 
-    // We use an async block to allow using the `?` operator for error handling
+    // use an async block to allow using the `?` operator for error handling
     let result: Result<Vec<IndexInfo>, String> = async {
         match db_type {
             DbType::Postgres => {
@@ -463,8 +491,19 @@ async fn create_table(
             }
         } else {
             match col.data_type.to_uppercase().as_str() {
-                "TEXT" | "STRING" | "VARCHAR" => "TEXT",
-                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "TEXT" | "STRING" => "TEXT",
+                "VARCHAR" | "VARCHAR(255)" => match db_type {
+                    DbType::Postgres => "VARCHAR(255)",
+                    DbType::Mysql => "VARCHAR(255)",
+                    DbType::Sqlite => "TEXT",
+                },
+                "INT" | "INTEGER" | "NUMBER" | "INT4" => "INTEGER",
+                "BIGINT" | "INT8" => match db_type {
+                    DbType::Postgres => "BIGINT",
+                    DbType::Mysql => "BIGINT",
+                    DbType::Sqlite => "INTEGER",
+                },
+                "SMALLINT" | "INT2" => "SMALLINT",
                 "BOOL" | "BOOLEAN" => match db_type {
                     DbType::Postgres => "BOOLEAN",
                     _ => "INTEGER", // MySQL/SQLite use 0/1 usually
@@ -473,10 +512,22 @@ async fn create_table(
                     DbType::Postgres => "TIMESTAMP",
                     _ => "DATETIME",
                 },
+                "DATE" => "DATE",
+                "TIME" => "TIME",
                 "FLOAT" | "REAL" | "DOUBLE" => "REAL",
+                "DECIMAL" | "NUMERIC" => match db_type {
+                    DbType::Postgres => "DECIMAL",
+                    DbType::Mysql => "DECIMAL(10,2)",
+                    DbType::Sqlite => "REAL",
+                },
                 "UUID" => match db_type {
                     DbType::Postgres => "UUID",
-                    _ => "TEXT",
+                    _ => "VARCHAR(36)",
+                },
+                "JSON" | "JSONB" => match db_type {
+                    DbType::Postgres => "JSONB",
+                    DbType::Mysql => "JSON",
+                    DbType::Sqlite => "TEXT",
                 },
                 _ => "TEXT", // Fallback
             }

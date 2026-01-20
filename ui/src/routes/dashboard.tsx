@@ -1,5 +1,7 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { Spinner } from '@/components/ui/spinner';
 import { DashboardLayout } from '@/components/layout';
 import {
 	DataGrid,
@@ -24,117 +26,30 @@ import type {
 	NewColumnDefinition,
 } from '@/models';
 import { toast } from 'sonner';
+import {
+	useTables,
+	useTable,
+	useTableRows,
+	useCreateTable,
+	useAlterTable,
+	useInsertRow,
+	useUpdateRow,
+	useDeleteRow,
+	useExecuteQuery,
+} from '@/hooks';
 
 export const Route = createFileRoute('/dashboard')({
 	component: DashboardPage,
 });
 
-// Dashboard mode: table view or SQL editor
+// dashboard mode: table view or SQL editor
 type DashboardMode = 'table' | 'sql-editor';
 
-// Mock data for development
-const MOCK_TABLES: TableInfo[] = [
-	{ name: 'users', tableType: 'TABLE', rowCountEstimate: 1523 },
-	{ name: 'orders', tableType: 'TABLE', rowCountEstimate: 4820 },
-	{ name: 'products', tableType: 'TABLE', rowCountEstimate: 312 },
-	{ name: 'categories', tableType: 'TABLE', rowCountEstimate: 24 },
-	{ name: 'reviews', tableType: 'TABLE', rowCountEstimate: 8920 },
-	{ name: 'payments', tableType: 'TABLE', rowCountEstimate: 4315 },
-	{ name: 'shipping_addresses', tableType: 'TABLE', rowCountEstimate: 2156 },
-	{ name: 'wishlists', tableType: 'TABLE', rowCountEstimate: 892 },
-];
-
-const MOCK_COLUMNS: ColumnInfo[] = [
-	{
-		name: 'id',
-		dataType: 'uuid',
-		nullable: false,
-		isPrimaryKey: true,
-		defaultValue: 'gen_random_uuid()',
-	},
-	{
-		name: 'email',
-		dataType: 'varchar(255)',
-		nullable: false,
-		isPrimaryKey: false,
-		defaultValue: null,
-	},
-	{
-		name: 'name',
-		dataType: 'varchar(255)',
-		nullable: true,
-		isPrimaryKey: false,
-		defaultValue: null,
-	},
-	{
-		name: 'created_on',
-		dataType: 'timestamp',
-		nullable: false,
-		isPrimaryKey: false,
-		defaultValue: 'CURRENT_TIMESTAMP',
-	},
-];
-
-const MOCK_ROWS: TableRow[] = [
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-	{
-		id: 'fa2b3c4d',
-		email: 'alice@example.com',
-		name: 'Alice Johnson',
-		created_on: '2024-01-15 14:23:11',
-	},
-];
-
 function DashboardPage() {
+	const { isConnected, isLoading, database, dbType } = useAuth();
+	const navigate = useNavigate();
 	const [dashboardMode, setDashboardMode] = useState<DashboardMode>('table');
-	const [selectedTable, setSelectedTable] = useState<string | null>('users');
+	const [selectedTable, setSelectedTable] = useState<string | null>(null);
 	const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 	const [addRowModalOpen, setAddRowModalOpen] = useState(false);
 	const [addColumnModalOpen, setAddColumnModalOpen] = useState(false);
@@ -147,16 +62,49 @@ function DashboardPage() {
 	const [deleteColumnConfirmOpen, setDeleteColumnConfirmOpen] =
 		useState(false);
 	const [deletingColumnName, setDeletingColumnName] = useState<string | null>(
-		null
+		null,
 	);
 	const [viewMode, setViewMode] = useState<ViewMode>('data');
 
-	// Mock connection info (would come from auth state)
+	// React Query hooks - must be called unconditionally (before any returns)
+	const tablesQuery = useTables();
+	const columnsQuery = useTable(selectedTable || '');
+	const rowsQuery = useTableRows(selectedTable || '');
+
+	// Mutations
+	const createTableMutation = useCreateTable();
+	const alterTableMutation = useAlterTable(selectedTable || '');
+	const insertRowMutation = useInsertRow(selectedTable || '');
+	const updateRowMutation = useUpdateRow(selectedTable || '');
+	const deleteRowMutation = useDeleteRow(selectedTable || '');
+	const executeQueryMutation = useExecuteQuery();
+
+	// API data - use directly without transformation
+	const tables: TableInfo[] = tablesQuery.data || [];
+	const columns: ColumnInfo[] = columnsQuery.data || [];
+	const rows: TableRow[] = rowsQuery.data?.rows || [];
+
+	// show loading spinner while checking auth status
+	if (isLoading) {
+		return (
+			<div className='min-h-screen bg-duck-dark-900 flex items-center justify-center'>
+				<Spinner size='lg' />
+			</div>
+		);
+	}
+
+	// redirect to connection page if not connected
+	if (!isConnected) {
+		navigate({ to: '/' });
+		return null;
+	}
+
+	// connection info from auth state
 	const connectionInfo = {
-		dbType: 'PostgreSQL',
-		host: 'localhost',
+		dbType: dbType || 'Unknown',
+		host: 'localhost', // TODO: store host in auth state if needed
 		port: '5432',
-		database: 'myapp_production',
+		database: database || 'Unknown',
 	};
 
 	const handleSelectTable = (tableName: string) => {
@@ -188,7 +136,7 @@ function DashboardPage() {
 
 	const handleSelectAll = (selected: boolean) => {
 		if (selected) {
-			const allIds = MOCK_ROWS.map((_, index) => String(index));
+			const allIds = rows.map((_, index) => String(index));
 			setSelectedRows(new Set(allIds));
 		} else {
 			setSelectedRows(new Set());
@@ -199,16 +147,26 @@ function DashboardPage() {
 		setDeleteConfirmModalOpen(true);
 	};
 
-	const confirmDeleteRows = () => {
+	const confirmDeleteRows = async () => {
 		const count = selectedRows.size;
-		toast.success(`Deleted ${count} row${count > 1 ? 's' : ''}!`);
-		setSelectedRows(new Set());
+		const rowIds = Array.from(selectedRows);
+
+		try {
+			// Delete each selected row
+			for (const rowId of rowIds) {
+				await deleteRowMutation.mutateAsync(rowId);
+			}
+			toast.success(`Deleted ${count} row${count > 1 ? 's' : ''}!`);
+			setSelectedRows(new Set());
+		} catch (error) {
+			toast.error('Failed to delete rows');
+		}
 	};
 
 	const handleEditRow = () => {
 		if (selectedRows.size === 1) {
 			const rowIndex = Number(Array.from(selectedRows)[0]);
-			const rowData = MOCK_ROWS[rowIndex];
+			const rowData = rows[rowIndex];
 			if (rowData) {
 				setEditingRowData(rowData);
 				setEditRowModalOpen(true);
@@ -216,30 +174,58 @@ function DashboardPage() {
 		}
 	};
 
-	const handleSaveEditedRow = (data: Record<string, string>) => {
-		console.log('Saving edited row:', data);
-		toast.success('Row updated successfully!');
-		setSelectedRows(new Set());
+	const handleSaveEditedRow = async (data: Record<string, string>) => {
+		if (!editingRowData || !('id' in editingRowData)) {
+			toast.error('Cannot update row without ID');
+			return;
+		}
+
+		try {
+			await updateRowMutation.mutateAsync({
+				id: editingRowData.id as string | number,
+				row: data,
+			});
+			toast.success('Row updated successfully!');
+			setSelectedRows(new Set());
+		} catch (error) {
+			toast.error('Failed to update row');
+			throw error;
+		}
 	};
 
-	const handleAddRow = (data: Record<string, string>) => {
-		console.log('Adding row:', data);
-		toast.success('Row added successfully!');
+	const handleAddRow = async (data: Record<string, string>) => {
+		try {
+			await insertRowMutation.mutateAsync(data);
+			toast.success('Row added successfully!');
+		} catch (error) {
+			toast.error('Failed to add row');
+			throw error;
+		}
 	};
 
-	const handleAddColumn = (column: NewColumnDefinition) => {
-		if (editingColumnData) {
-			console.log('Updating column:', column);
-			toast.success(`Column "${column.name}" updated successfully!`);
-			setEditingColumnData(null);
-		} else {
-			console.log('Adding column:', column);
+	const handleAddColumn = async (column: NewColumnDefinition) => {
+		try {
+			// Note: editing columns is not supported by the current API
+			// This always adds a new column
+			await alterTableMutation.mutateAsync({
+				alter_type: 'AddColumn',
+				column_definition: {
+					name: column.name,
+					data_type: column.data_type,
+					nullable: column.nullable,
+					is_primary_key: column.is_primary_key,
+				},
+			});
 			toast.success(`Column "${column.name}" added successfully!`);
+			setEditingColumnData(null);
+			setAddColumnModalOpen(false);
+		} catch (error) {
+			toast.error('Failed to add column');
 		}
 	};
 
 	const handleEditColumn = (columnName: string) => {
-		const columnData = MOCK_COLUMNS.find((col) => col.name === columnName);
+		const columnData = columns.find((col) => col.name === columnName);
 		if (columnData) {
 			setEditingColumnData(columnData);
 			setAddColumnModalOpen(true);
@@ -251,72 +237,97 @@ function DashboardPage() {
 		setDeleteColumnConfirmOpen(true);
 	};
 
-	const confirmDeleteColumn = () => {
+	const confirmDeleteColumn = async () => {
 		if (deletingColumnName) {
-			toast.success(`Column "${deletingColumnName}" deleted!`);
-			setDeletingColumnName(null);
+			try {
+				await alterTableMutation.mutateAsync({
+					alter_type: 'DropColumn',
+					column_name: deletingColumnName,
+				});
+				toast.success(`Column "${deletingColumnName}" deleted!`);
+				setDeletingColumnName(null);
+			} catch (error) {
+				toast.error('Failed to delete column');
+			}
 		}
 	};
 
-	const handleCreateTable = (
+	const handleCreateTable = async (
 		tableName: string,
-		columns: NewColumnDefinition[],
-		foreignKeys: {
+		tableColumns: NewColumnDefinition[],
+		_foreignKeys: {
 			sourceColumn: string;
 			targetTable: string;
 			targetColumn: string;
 			onDelete: string;
-		}[]
+		}[],
 	) => {
-		console.log('Creating table:', tableName, columns, foreignKeys);
-		toast.success(`Table "${tableName}" created successfully!`);
+		try {
+			const payload = {
+				name: tableName,
+				columns: tableColumns.map((col) => ({
+					name: col.name,
+					data_type: col.data_type,
+					nullable: col.nullable,
+					is_primary_key: col.is_primary_key,
+				})),
+			};
+
+			await createTableMutation.mutateAsync(payload);
+			toast.success(`Table "${tableName}" created successfully!`);
+		} catch (error) {
+			console.error('Create table error:', error);
+			const message =
+				error instanceof Error
+					? error.message
+					: 'Failed to create table';
+			toast.error(message);
+		}
 	};
 
-	// Mock SQL query execution
+	// SQL query execution using API
 	const handleRunQuery = async (query: string): Promise<QueryResult> => {
-		console.log('Running query:', query);
+		const startTime = Date.now();
 
-		// Simulate API delay
-		await new Promise((resolve) => setTimeout(resolve, 230));
+		try {
+			const result = await executeQueryMutation.mutateAsync(query);
+			const endTime = Date.now();
 
-		// Mock result based on query
-		const lowerQuery = query.toLowerCase();
+			if (result.rows && result.rows.length > 0) {
+				// SELECT query with results
+				const columnNames = Object.keys(result.rows[0]);
+				return {
+					status: 'success',
+					time: endTime - startTime,
+					size: null,
+					columns: columnNames,
+					rows: result.rows,
+				};
+			}
 
-		if (lowerQuery.includes('select')) {
+			// Non-SELECT query (INSERT, UPDATE, DELETE, etc.)
 			return {
 				status: 'success',
-				time: 230,
-				size: '1.96 KB',
-				columns: ['id', 'email', 'name', 'created_on'],
-				rows: MOCK_ROWS,
-			};
-		}
-
-		// INSERT, UPDATE, DELETE - return message result
-		if (
-			lowerQuery.includes('insert') ||
-			lowerQuery.includes('update') ||
-			lowerQuery.includes('delete')
-		) {
-			return {
-				status: 'success',
-				time: 45,
+				time: endTime - startTime,
 				size: null,
 				columns: [],
 				rows: [],
-				message: 'Query executed successfully',
-				rowsAffected: lowerQuery.includes('insert') ? 1 : 5,
+				message: result.message || 'Query executed successfully',
+				rowsAffected: result.rows_affected,
+			};
+		} catch (error) {
+			return {
+				status: 'error',
+				time: null,
+				size: null,
+				columns: [],
+				rows: [],
+				error:
+					error instanceof Error
+						? error.message
+						: 'Query execution failed',
 			};
 		}
-
-		return {
-			status: 'error',
-			time: null,
-			size: null,
-			columns: [],
-			rows: [],
-			error: 'Invalid query syntax',
-		};
 	};
 
 	return (
@@ -325,60 +336,113 @@ function DashboardPage() {
 			host={connectionInfo.host}
 			port={connectionInfo.port}
 			database={connectionInfo.database}
-			tables={MOCK_TABLES}
+			tables={tables}
 			selectedTable={selectedTable}
 			isSQLEditorActive={dashboardMode === 'sql-editor'}
 			onSelectTable={handleSelectTable}
 			onNewTable={handleNewTable}
 			onSQLEditor={handleSQLEditor}
 		>
-			{/* SQL Editor Mode */}
+			{/* sql editor mode */}
 			{dashboardMode === 'sql-editor' && (
 				<SQLEditor onRun={handleRunQuery} />
 			)}
 
-			{/* Table View Mode */}
-			{dashboardMode === 'table' && selectedTable && (
+			{/* table view mode */}
+			{dashboardMode === 'table' && (
 				<>
-					<DataGridHeader
-						tableName={selectedTable}
-						selectedCount={selectedRows.size}
-						onAddColumn={() => setAddColumnModalOpen(true)}
-						onEditRow={handleEditRow}
-						onAddRow={() => setAddRowModalOpen(true)}
-						onDeleteRows={handleDeleteRows}
-					/>
-
-					{/* Data View or Schema View based on viewMode */}
-					{viewMode === 'data' ? (
-						<DataGrid
-							columns={MOCK_COLUMNS}
-							rows={MOCK_ROWS}
-							selectedRows={selectedRows}
-							onSelectRow={handleSelectRow}
-							onSelectAll={handleSelectAll}
-							onEditColumn={handleEditColumn}
-							onDeleteColumn={handleDeleteColumn}
-						/>
-					) : (
-						<SchemaView
-							tableName={selectedTable}
-							columns={MOCK_COLUMNS}
-						/>
+					{/* no table selected - show empty state */}
+					{!selectedTable && (
+						<div className='flex-1 flex items-center justify-center text-duck-white-300'>
+							<div className='text-center'>
+								<p className='text-duck-sm'>
+									Select a table from the sidebar to view its
+									data
+								</p>
+							</div>
+						</div>
 					)}
 
-					{/* Footer with row count and Data/Schema tabs */}
-					<DataGridFooter
-						rowCount={MOCK_ROWS.length}
-						viewMode={viewMode}
-						onViewModeChange={setViewMode}
-					/>
+					{/* table selected */}
+					{selectedTable && (
+						<>
+							<DataGridHeader
+								tableName={selectedTable}
+								selectedCount={selectedRows.size}
+								onAddColumn={() => setAddColumnModalOpen(true)}
+								onEditRow={handleEditRow}
+								onAddRow={() => setAddRowModalOpen(true)}
+								onDeleteRows={handleDeleteRows}
+							/>
+
+							{/* loading state for columns/rows */}
+							{(columnsQuery.isLoading ||
+								rowsQuery.isLoading) && (
+								<div className='flex-1 flex items-center justify-center'>
+									<Spinner size='lg' />
+								</div>
+							)}
+
+							{/* error state for columns/rows */}
+							{!columnsQuery.isLoading &&
+								!rowsQuery.isLoading &&
+								(columnsQuery.error || rowsQuery.error) && (
+									<div className='flex-1 flex items-center justify-center'>
+										<div className='text-center'>
+											<p className='text-red-400 text-duck-sm mb-2'>
+												Failed to load table data
+											</p>
+											<p className='text-duck-white-300 text-duck-xs'>
+												{columnsQuery.error?.message ||
+													rowsQuery.error?.message}
+											</p>
+										</div>
+									</div>
+								)}
+
+							{/* data loaded successfully */}
+							{!columnsQuery.isLoading &&
+								!rowsQuery.isLoading &&
+								!columnsQuery.error &&
+								!rowsQuery.error && (
+									<>
+										{/* data view or schema view based on viewMode */}
+										{viewMode === 'data' ? (
+											<DataGrid
+												columns={columns}
+												rows={rows}
+												selectedRows={selectedRows}
+												onSelectRow={handleSelectRow}
+												onSelectAll={handleSelectAll}
+												onEditColumn={handleEditColumn}
+												onDeleteColumn={
+													handleDeleteColumn
+												}
+											/>
+										) : (
+											<SchemaView
+												tableName={selectedTable}
+												columns={columns}
+												dbType={dbType || 'postgres'}
+											/>
+										)}
+
+										{/* footer with row count and Data/Schema tabs */}
+										<DataGridFooter
+											rowCount={rows.length}
+											viewMode={viewMode}
+											onViewModeChange={setViewMode}
+										/>
+									</>
+								)}
+						</>
+					)}
 
 					<AddRowModal
 						open={addRowModalOpen}
 						onClose={() => setAddRowModalOpen(false)}
-						tableName={selectedTable}
-						columns={MOCK_COLUMNS}
+						tableName={selectedTable || ''}
+						columns={columns}
 						onSave={handleAddRow}
 					/>
 
@@ -388,7 +452,7 @@ function DashboardPage() {
 							setAddColumnModalOpen(false);
 							setEditingColumnData(null);
 						}}
-						tableName={selectedTable}
+						tableName={selectedTable || ''}
 						onSave={handleAddColumn}
 						editingColumn={editingColumnData}
 					/>
@@ -399,8 +463,8 @@ function DashboardPage() {
 							setEditRowModalOpen(false);
 							setEditingRowData(null);
 						}}
-						tableName={selectedTable}
-						columns={MOCK_COLUMNS}
+						tableName={selectedTable || ''}
+						columns={columns}
 						rowData={editingRowData}
 						onSave={handleSaveEditedRow}
 					/>
@@ -410,7 +474,7 @@ function DashboardPage() {
 						onClose={() => setDeleteConfirmModalOpen(false)}
 						itemType='row'
 						itemCount={selectedRows.size}
-						tableName={selectedTable}
+						tableName={selectedTable || ''}
 						onConfirm={confirmDeleteRows}
 					/>
 
@@ -422,7 +486,7 @@ function DashboardPage() {
 						}}
 						itemType='column'
 						itemCount={1}
-						tableName={selectedTable}
+						tableName={selectedTable || ''}
 						itemName={deletingColumnName || undefined}
 						onConfirm={confirmDeleteColumn}
 					/>
@@ -433,7 +497,7 @@ function DashboardPage() {
 				open={createTableModalOpen}
 				onClose={() => setCreateTableModalOpen(false)}
 				onSave={handleCreateTable}
-				availableTables={MOCK_TABLES}
+				availableTables={tables}
 			/>
 		</DashboardLayout>
 	);

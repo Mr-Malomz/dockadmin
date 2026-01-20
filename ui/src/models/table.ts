@@ -1,17 +1,17 @@
-// Table and schema types
+// table and schema types - matches API response format
 
 export interface TableInfo {
     name: string;
-    tableType: string;
-    rowCountEstimate: number | null;
+    table_type: string;
+    row_count_estimate: number | null;
 }
 
 export interface ColumnInfo {
     name: string;
-    dataType: string;
+    data_type: string;
     nullable: boolean;
-    isPrimaryKey: boolean;
-    defaultValue: string | null;
+    is_primary_key: boolean;
+    default_value: string | null;
 }
 
 export interface TableRow {
@@ -24,13 +24,13 @@ export interface PaginatedData {
     limit: number;
 }
 
-// Column definition for creating new columns
+// column definition for creating new columns
 export interface NewColumnDefinition {
     name: string;
     description?: string;
-    dataType: string;
-    defaultValue: string;
-    isPrimaryKey: boolean;
+    data_type: string;
+    default_value: string;
+    is_primary_key: boolean;
     nullable: boolean;
     unique: boolean;
 }
@@ -38,14 +38,14 @@ export interface NewColumnDefinition {
 export const INITIAL_NEW_COLUMN: NewColumnDefinition = {
     name: '',
     description: '',
-    dataType: '',
-    defaultValue: '',
-    isPrimaryKey: false,
+    data_type: '',
+    default_value: '',
+    is_primary_key: false,
     nullable: false,
     unique: false,
 };
 
-// Column type options
+// column type options
 export const COLUMN_TYPES = [
     'integer',
     'bigint',
