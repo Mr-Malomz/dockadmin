@@ -58,6 +58,8 @@ pub enum AlterType {
     RenameTable,
     AddColumn,
     DropColumn,
+    ModifyColumn,
+    RenameColumn,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,4 +68,5 @@ pub struct AlterTableRequest {
     pub new_name: Option<String>,
     pub column_definition: Option<ColumnDefinition>,
     pub column_name: Option<String>,
+    pub old_column_name: Option<String>, // For ModifyColumn/RenameColumn
 }

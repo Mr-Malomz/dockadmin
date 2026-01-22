@@ -35,12 +35,14 @@ export function ColumnModal({
 }: ColumnModalProps) {
 	const [column, setColumn] =
 		useState<NewColumnDefinition>(INITIAL_NEW_COLUMN);
+	const [validationError, setValidationError] = useState<string | null>(null);
 
 	const isEditMode = !!editingColumn;
 
 	// Reset or populate form when modal opens
 	useEffect(() => {
 		if (open) {
+			setValidationError(null); // Clear error on open
 			if (editingColumn) {
 				// Edit mode: populate with existing column data
 				setColumn({
@@ -61,12 +63,19 @@ export function ColumnModal({
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
+		if (!column.data_type) {
+			setValidationError('Please select a data type.');
+			return;
+		}
 		onSave(column);
 		onClose();
 	};
 
 	const updateColumn = (field: keyof NewColumnDefinition, value: unknown) => {
 		setColumn((prev) => ({ ...prev, [field]: value }));
+		if (field === 'data_type' && value) {
+			setValidationError(null);
+		}
 	};
 
 	return (
@@ -97,7 +106,7 @@ export function ColumnModal({
 						<div className='p-6 space-y-4'>
 							<div className='space-y-2'>
 								<label className='text-duck-white-700 text-duck-sm font-normal'>
-									Name
+									Name <span className='text-red-500'>*</span>
 								</label>
 								<Input
 									type='text'
@@ -141,7 +150,7 @@ export function ColumnModal({
 						<div className='p-6 space-y-4'>
 							<div className='space-y-2'>
 								<label className='text-duck-white-700 text-duck-sm font-normal'>
-									Type
+									Type <span className='text-red-500'>*</span>
 								</label>
 								<Select
 									value={column.data_type}
@@ -258,21 +267,28 @@ export function ColumnModal({
 					</div>
 
 					{/* Footer with Cancel and Save buttons */}
-					<DialogFooter className='p-6 gap-2'>
-						<Button
-							type='button'
-							variant='outline'
-							onClick={onClose}
-							className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
-						>
-							Cancel
-						</Button>
-						<Button
-							type='submit'
-							className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
-						>
-							{isEditMode ? 'Save Changes' : 'Save'}
-						</Button>
+					<DialogFooter className='p-6 gap-2 flex-col sm:flex-row'>
+						{validationError && (
+							<div className='text-red-500 text-sm mr-auto'>
+								{validationError}
+							</div>
+						)}
+						<div className='flex gap-2 ml-auto'>
+							<Button
+								type='button'
+								variant='outline'
+								onClick={onClose}
+								className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
+							>
+								Cancel
+							</Button>
+							<Button
+								type='submit'
+								className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
+							>
+								{isEditMode ? 'Save Changes' : 'Save'}
+							</Button>
+						</div>
 					</DialogFooter>
 				</form>
 			</DialogContent>

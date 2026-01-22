@@ -41,8 +41,16 @@ export function DataGrid({
 	const someSelected =
 		selectedRows.size > 0 && selectedRows.size < rows.length;
 
-	// Use index as the unique row identifier for consistent selection
-	const getRowId = (_row: RowData, index: number): string => {
+	// Use primary key as unique identifier, fallback to index
+	const getRowId = (row: RowData, index: number): string => {
+		const pkColumn = columns.find((col) => col.is_primary_key);
+		if (
+			pkColumn &&
+			row[pkColumn.name] !== undefined &&
+			row[pkColumn.name] !== null
+		) {
+			return String(row[pkColumn.name]);
+		}
 		return String(index);
 	};
 

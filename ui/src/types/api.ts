@@ -81,7 +81,9 @@ export interface ColumnDefinition {
 export type AlterTableRequest =
     | { alter_type: 'RenameTable'; new_name: string }
     | { alter_type: 'AddColumn'; column_definition: ColumnDefinition }
-    | { alter_type: 'DropColumn'; column_name: string };
+    | { alter_type: 'DropColumn'; column_name: string }
+    | { alter_type: 'ModifyColumn'; old_column_name: string; column_definition: ColumnDefinition }
+    | { alter_type: 'RenameColumn'; old_column_name: string; column_name: string };
 
 // data types (CRUD)
 export interface PaginatedRows {

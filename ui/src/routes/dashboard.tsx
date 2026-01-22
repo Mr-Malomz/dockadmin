@@ -165,8 +165,26 @@ function DashboardPage() {
 
 	const handleEditRow = () => {
 		if (selectedRows.size === 1) {
-			const rowIndex = Number(Array.from(selectedRows)[0]);
-			const rowData = rows[rowIndex];
+			const selectedId = Array.from(selectedRows)[0];
+
+			// Find primary key column
+			const pkColumn = columns.find((col) => col.is_primary_key);
+
+			let rowData: TableRow | undefined;
+
+			if (pkColumn) {
+				// Find row by primary key value
+				rowData = rows.find(
+					(row) => String(row[pkColumn.name]) === selectedId,
+				);
+			} else {
+				// Fallback to index if no PK (legacy behavior)
+				const rowIndex = Number(selectedId);
+				if (!isNaN(rowIndex)) {
+					rowData = rows[rowIndex];
+				}
+			}
+
 			if (rowData) {
 				setEditingRowData(rowData);
 				setEditRowModalOpen(true);
@@ -205,22 +223,41 @@ function DashboardPage() {
 
 	const handleAddColumn = async (column: NewColumnDefinition) => {
 		try {
-			// Note: editing columns is not supported by the current API
-			// This always adds a new column
-			await alterTableMutation.mutateAsync({
-				alter_type: 'AddColumn',
-				column_definition: {
-					name: column.name,
-					data_type: column.data_type,
-					nullable: column.nullable,
-					is_primary_key: column.is_primary_key,
-				},
-			});
-			toast.success(`Column "${column.name}" added successfully!`);
+			// Check if we're editing an existing column
+			if (editingColumnData) {
+				// Use ModifyColumn for editing
+				await alterTableMutation.mutateAsync({
+					alter_type: 'ModifyColumn',
+					old_column_name: editingColumnData.name,
+					column_definition: {
+						name: column.name,
+						data_type: column.data_type,
+						nullable: column.nullable,
+						is_primary_key: column.is_primary_key,
+					},
+				});
+				toast.success(`Column "${column.name}" modified successfully!`);
+			} else {
+				// Add new column
+				await alterTableMutation.mutateAsync({
+					alter_type: 'AddColumn',
+					column_definition: {
+						name: column.name,
+						data_type: column.data_type,
+						nullable: column.nullable,
+						is_primary_key: column.is_primary_key,
+					},
+				});
+				toast.success(`Column "${column.name}" added successfully!`);
+			}
 			setEditingColumnData(null);
 			setAddColumnModalOpen(false);
 		} catch (error) {
-			toast.error('Failed to add column');
+			toast.error(
+				editingColumnData
+					? 'Failed to modify column'
+					: 'Failed to add column',
+			);
 		}
 	};
 

@@ -15,8 +15,7 @@ pub fn routes(session_store: SessionStore) -> Router {
         .with_state(session_store)
 }
 
-/// POST /api/query - Execute raw SQL query
-/// POST /api/query - Execute raw SQL query
+// POST /api/query - Execute raw SQL query
 async fn execute_query(
     AuthSession(session): AuthSession,
     Json(payload): Json<QueryRequest>,
@@ -36,7 +35,7 @@ async fn execute_query(
     if is_select {
         let mut final_sql = sql.to_string();
 
-        // For MySQL, use temp table to inspect columns and cast to CHAR
+        // Using temp table to inspect columns and cast to CHAR
         // This avoids "Any driver does not support MySql type..." error for DATETIME
         if matches!(db_type, DbType::Mysql) {
             // Usage of temp tables requires the same connection for creation and inspection.

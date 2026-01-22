@@ -41,7 +41,7 @@ export const INITIAL_NEW_COLUMN: NewColumnDefinition = {
     data_type: '',
     default_value: '',
     is_primary_key: false,
-    nullable: false,
+    nullable: true,
     unique: false,
 };
 
