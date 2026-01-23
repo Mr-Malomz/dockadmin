@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { Spinner } from '@/components/ui/spinner';
 import { DashboardLayout } from '@/components/layout';
@@ -36,6 +36,8 @@ import {
 	useUpdateRow,
 	useDeleteRow,
 	useExecuteQuery,
+	useDropTable,
+	useTableForeignKeys,
 } from '@/hooks';
 
 export const Route = createFileRoute('/dashboard')({
@@ -46,7 +48,7 @@ export const Route = createFileRoute('/dashboard')({
 type DashboardMode = 'table' | 'sql-editor';
 
 function DashboardPage() {
-	const { isConnected, isLoading, database, dbType } = useAuth();
+	const { isConnected, isLoading, database, dbType, disconnect } = useAuth();
 	const navigate = useNavigate();
 	const [dashboardMode, setDashboardMode] = useState<DashboardMode>('table');
 	const [selectedTable, setSelectedTable] = useState<string | null>(null);
@@ -66,23 +68,58 @@ function DashboardPage() {
 	);
 	const [viewMode, setViewMode] = useState<ViewMode>('data');
 
+	// Table Actions State
+	const [tableToEdit, setTableToEdit] = useState<string | null>(null);
+	const [deleteTableConfirmOpen, setDeleteTableConfirmOpen] = useState(false);
+	const [tableToDelete, setTableToDelete] = useState<string | null>(null);
+
 	// React Query hooks - must be called unconditionally (before any returns)
 	const tablesQuery = useTables();
 	const columnsQuery = useTable(selectedTable || '');
 	const rowsQuery = useTableRows(selectedTable || '');
 
+	// Queries for Edit Table
+	const editTableColumnsQuery = useTable(tableToEdit || '');
+	const editTableFKsQuery = useTableForeignKeys(tableToEdit || '');
+
 	// Mutations
 	const createTableMutation = useCreateTable();
-	const alterTableMutation = useAlterTable(selectedTable || '');
+	const dropTableMutation = useDropTable();
+	const alterTableMutation = useAlterTable();
 	const insertRowMutation = useInsertRow(selectedTable || '');
 	const updateRowMutation = useUpdateRow(selectedTable || '');
 	const deleteRowMutation = useDeleteRow(selectedTable || '');
 	const executeQueryMutation = useExecuteQuery();
 
-	// API data - use directly without transformation
+	// API data
 	const tables: TableInfo[] = tablesQuery.data || [];
 	const columns: ColumnInfo[] = columnsQuery.data || [];
 	const rows: TableRow[] = rowsQuery.data?.rows || [];
+
+	// Auto-select the first table when tables are loaded and none is selected
+	useEffect(() => {
+		if (tables.length > 0 && !selectedTable && dashboardMode === 'table') {
+			setSelectedTable(tables[0].name);
+		}
+	}, [tables, selectedTable, dashboardMode]);
+
+	// Open modal when edit data is ready
+	useEffect(() => {
+		if (
+			tableToEdit &&
+			editTableColumnsQuery.data &&
+			editTableFKsQuery.data
+		) {
+			setCreateTableModalOpen(true);
+		}
+	}, [tableToEdit, editTableColumnsQuery.data, editTableFKsQuery.data]);
+
+	// Clear editing state when modal closes
+	useEffect(() => {
+		if (!createTableModalOpen) {
+			setTableToEdit(null);
+		}
+	}, [createTableModalOpen]);
 
 	// show loading spinner while checking auth status
 	if (isLoading) {
@@ -114,7 +151,31 @@ function DashboardPage() {
 	};
 
 	const handleNewTable = () => {
+		setTableToEdit(null);
 		setCreateTableModalOpen(true);
+	};
+
+	const handleEditTable = (tableName: string) => {
+		setTableToEdit(tableName);
+	};
+
+	const handleDeleteTable = (tableName: string) => {
+		setTableToDelete(tableName);
+		setDeleteTableConfirmOpen(true);
+	};
+
+	const confirmDeleteTable = async () => {
+		if (tableToDelete) {
+			try {
+				await dropTableMutation.mutateAsync(tableToDelete);
+				toast.success(`Table "${tableToDelete}" deleted!`);
+				if (selectedTable === tableToDelete) setSelectedTable(null);
+				setTableToDelete(null);
+			} catch (error) {
+				toast.error(`Failed to delete table "${tableToDelete}"`);
+				throw error; // Re-throw so modal stays open
+			}
+		}
 	};
 
 	const handleSQLEditor = () => {
@@ -160,6 +221,7 @@ function DashboardPage() {
 			setSelectedRows(new Set());
 		} catch (error) {
 			toast.error('Failed to delete rows');
+			throw error; // Re-throw so modal stays open
 		}
 	};
 
@@ -227,25 +289,33 @@ function DashboardPage() {
 			if (editingColumnData) {
 				// Use ModifyColumn for editing
 				await alterTableMutation.mutateAsync({
-					alter_type: 'ModifyColumn',
-					old_column_name: editingColumnData.name,
-					column_definition: {
-						name: column.name,
-						data_type: column.data_type,
-						nullable: column.nullable,
-						is_primary_key: column.is_primary_key,
+					tableName: selectedTable || '',
+					request: {
+						alter_type: 'ModifyColumn',
+						old_column_name: editingColumnData.name,
+						column_definition: {
+							name: column.name,
+							data_type: column.data_type,
+							nullable: column.nullable,
+							is_primary_key: column.is_primary_key,
+							default_value: column.default_value,
+						},
 					},
 				});
 				toast.success(`Column "${column.name}" modified successfully!`);
 			} else {
 				// Add new column
 				await alterTableMutation.mutateAsync({
-					alter_type: 'AddColumn',
-					column_definition: {
-						name: column.name,
-						data_type: column.data_type,
-						nullable: column.nullable,
-						is_primary_key: column.is_primary_key,
+					tableName: selectedTable || '',
+					request: {
+						alter_type: 'AddColumn',
+						column_definition: {
+							name: column.name,
+							data_type: column.data_type,
+							nullable: column.nullable,
+							is_primary_key: column.is_primary_key,
+							default_value: column.default_value,
+						},
 					},
 				});
 				toast.success(`Column "${column.name}" added successfully!`);
@@ -278,18 +348,22 @@ function DashboardPage() {
 		if (deletingColumnName) {
 			try {
 				await alterTableMutation.mutateAsync({
-					alter_type: 'DropColumn',
-					column_name: deletingColumnName,
+					tableName: selectedTable || '',
+					request: {
+						alter_type: 'DropColumn',
+						column_name: deletingColumnName,
+					},
 				});
 				toast.success(`Column "${deletingColumnName}" deleted!`);
 				setDeletingColumnName(null);
 			} catch (error) {
 				toast.error('Failed to delete column');
+				throw error; // Re-throw so modal stays open
 			}
 		}
 	};
 
-	const handleCreateTable = async (
+	const handleSaveTable = async (
 		tableName: string,
 		tableColumns: NewColumnDefinition[],
 		_foreignKeys: {
@@ -300,24 +374,147 @@ function DashboardPage() {
 		}[],
 	) => {
 		try {
-			const payload = {
-				name: tableName,
-				columns: tableColumns.map((col) => ({
-					name: col.name,
-					data_type: col.data_type,
-					nullable: col.nullable,
-					is_primary_key: col.is_primary_key,
-				})),
-			};
+			// If not editing, create new table
+			if (!tableToEdit) {
+				const payload = {
+					name: tableName,
+					columns: tableColumns.map((col) => ({
+						name: col.name,
+						data_type: col.data_type,
+						nullable: col.nullable,
+						is_primary_key: col.is_primary_key,
+						default_value: col.default_value,
+					})),
+				};
 
-			await createTableMutation.mutateAsync(payload);
-			toast.success(`Table "${tableName}" created successfully!`);
+				await createTableMutation.mutateAsync(payload);
+				toast.success(`Table "${tableName}" created successfully!`);
+				return;
+			}
+
+			// EDIT MODE Logic
+			let currentTableName = tableToEdit;
+
+			// 1. Check for Table Rename
+			if (tableToEdit !== tableName) {
+				await alterTableMutation.mutateAsync({
+					tableName: tableToEdit,
+					request: {
+						alter_type: 'RenameTable',
+						new_name: tableName,
+					},
+				});
+				currentTableName = tableName;
+				toast.success(
+					`Table renamed from "${tableToEdit}" to "${tableName}"`,
+				);
+			}
+
+			// Get original columns map
+			const originalCols = editInitialData?.columns || [];
+
+			// 2. Identify Changes
+			// Columns to Add (in new but not in old)
+			// We match by name. A column is "New" if its name doesn't exist in original cols.
+			// Note: This means renaming a column in UI = Drop + Add (data loss) unless we track IDs
+			// Since our UI doesn't track column rename explicitly (no IDs), we accept this limitation for now.
+			const addedCols = tableColumns.filter(
+				(newCol) =>
+					!originalCols.some((oldCol) => oldCol.name === newCol.name),
+			);
+
+			// Columns to Drop (in old but not in new)
+			const droppedCols = originalCols.filter(
+				(oldCol) =>
+					!tableColumns.some((newCol) => newCol.name === oldCol.name),
+			);
+
+			// Columns to Modify (in both, but properties changed)
+			const modifiedCols = tableColumns.filter((newCol) => {
+				const oldCol = originalCols.find((c) => c.name === newCol.name);
+				if (!oldCol) return false;
+
+				// Compare properties
+				return (
+					oldCol.data_type !== newCol.data_type ||
+					oldCol.nullable !== newCol.nullable ||
+					String(oldCol.default_value || '') !==
+						String(newCol.default_value || '')
+					// checking PK change might be tricky if backend doesn't support it easily, skipping for now
+				);
+			});
+
+			// 3. Execute Updates Comparison
+			// Since mutations are async and might depend on each other (schema state), execute sequentially
+
+			// Drop Columns
+			for (const col of droppedCols) {
+				await alterTableMutation.mutateAsync({
+					tableName: currentTableName,
+					request: {
+						alter_type: 'DropColumn',
+						column_name: col.name,
+					},
+				});
+			}
+
+			// Add Columns
+			for (const col of addedCols) {
+				await alterTableMutation.mutateAsync({
+					tableName: currentTableName,
+					request: {
+						alter_type: 'AddColumn',
+						column_definition: {
+							name: col.name,
+							data_type: col.data_type,
+							nullable: col.nullable,
+							is_primary_key: col.is_primary_key,
+							default_value: col.default_value,
+						},
+					},
+				});
+			}
+
+			// Modify Columns
+			for (const col of modifiedCols) {
+				const oldCol = originalCols.find((c) => c.name === col.name)!;
+				await alterTableMutation.mutateAsync({
+					tableName: currentTableName,
+					request: {
+						alter_type: 'ModifyColumn',
+						old_column_name: col.name,
+						column_definition: {
+							name: col.name,
+							data_type: col.data_type,
+							nullable: col.nullable,
+							is_primary_key: col.is_primary_key,
+							default_value: col.default_value,
+						},
+					},
+				});
+			}
+
+			if (
+				addedCols.length > 0 ||
+				droppedCols.length > 0 ||
+				modifiedCols.length > 0
+			) {
+				toast.success('Table schema updated successfully!');
+			}
+
+			// Clear selection if we renamed the currently selected table
+			if (
+				selectedTable === tableToEdit &&
+				tableToEdit !== currentTableName
+			) {
+				setSelectedTable(currentTableName);
+			}
 		} catch (error) {
-			console.error('Create table error:', error);
+			console.error('Save table error:', error);
 			const message =
 				error instanceof Error
 					? error.message
-					: 'Failed to create table';
+					: 'Failed to save table changes';
 			toast.error(message);
 		}
 	};
@@ -367,6 +564,33 @@ function DashboardPage() {
 		}
 	};
 
+	// Prepare initial data for Edit Table Modal
+	const editInitialData =
+		tableToEdit && editTableColumnsQuery.data
+			? {
+					tableName: tableToEdit,
+					columns: editTableColumnsQuery.data.map((c) => ({
+						name: c.name,
+						data_type: c.data_type,
+						nullable: c.nullable,
+						is_primary_key: c.is_primary_key,
+						default_value: c.default_value
+							? String(c.default_value)
+							: '',
+						unique: false, // Defaults to false as we don't have index data readily mapped yet
+					})),
+					foreignKeys: (editTableFKsQuery.data || []).map(
+						(fk) =>
+							({
+								sourceColumn: fk.column_name,
+								targetTable: fk.foreign_table,
+								targetColumn: fk.foreign_column,
+								onDelete: 'RESTRICT', // Default, as API might not return exact onDelete action yet
+							}) as any,
+					), // Cast as any to bypass strict literal type check for onDelete
+				}
+			: null;
+
 	return (
 		<DashboardLayout
 			dbType={connectionInfo.dbType}
@@ -379,6 +603,12 @@ function DashboardPage() {
 			onSelectTable={handleSelectTable}
 			onNewTable={handleNewTable}
 			onSQLEditor={handleSQLEditor}
+			onEditTable={handleEditTable}
+			onDeleteTable={handleDeleteTable}
+			onLogout={async () => {
+				await disconnect();
+				navigate({ to: '/' });
+			}}
 		>
 			{/* sql editor mode */}
 			{dashboardMode === 'sql-editor' && (
@@ -533,8 +763,20 @@ function DashboardPage() {
 			<CreateTableModal
 				open={createTableModalOpen}
 				onClose={() => setCreateTableModalOpen(false)}
-				onSave={handleCreateTable}
+				onSave={handleSaveTable}
 				availableTables={tables}
+				databaseName={database || undefined}
+				initialData={editInitialData}
+			/>
+
+			<DeleteConfirmModal
+				open={deleteTableConfirmOpen}
+				onClose={() => setDeleteTableConfirmOpen(false)}
+				itemType='table'
+				itemCount={1}
+				tableName={tableToDelete || ''}
+				itemName={tableToDelete || undefined}
+				onConfirm={confirmDeleteTable}
 			/>
 		</DashboardLayout>
 	);

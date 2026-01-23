@@ -76,6 +76,7 @@ export interface ColumnDefinition {
     data_type: string;
     nullable: boolean;
     is_primary_key: boolean;
+    default_value?: string | null;
 }
 
 export type AlterTableRequest =

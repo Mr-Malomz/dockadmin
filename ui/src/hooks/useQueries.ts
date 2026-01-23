@@ -105,19 +105,30 @@ export function useCreateTable() {
     });
 }
 
-export function useAlterTable(tableName: string) {
+export function useAlterTable() {
     const queryClient = useQueryClient();
 
     return useMutation({
-        mutationFn: async (request: AlterTableRequest) => {
+        mutationFn: async ({
+            tableName,
+            request,
+        }: {
+            tableName: string;
+            request: AlterTableRequest;
+        }) => {
             const response = await schemaApi.alterTable(tableName, request);
             if (!response.success) throw new Error(response.error);
             return response.data!;
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.table(tableName) });
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({
+                queryKey: queryKeys.table(variables.tableName),
+            });
             // invalidate all tableRows queries for this table (any params)
-            queryClient.invalidateQueries({ queryKey: ['tableRows', tableName] });
+            queryClient.invalidateQueries({
+                queryKey: ['tableRows', variables.tableName],
+            });
+            queryClient.invalidateQueries({ queryKey: queryKeys.tables }); // Also invalidate list of tables in case of renaming
         },
     });
 }

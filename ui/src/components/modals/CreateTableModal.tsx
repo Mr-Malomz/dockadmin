@@ -48,6 +48,12 @@ interface CreateTableModalProps {
 		foreignKeys: ForeignKeyDefinition[],
 	) => void | Promise<void>;
 	availableTables?: TableInfo[]; // Tables available for FK references
+	databaseName?: string;
+	initialData?: {
+		tableName: string;
+		columns: NewColumnDefinition[];
+		foreignKeys: ForeignKeyDefinition[];
+	} | null;
 }
 
 export function CreateTableModal({
@@ -55,6 +61,8 @@ export function CreateTableModal({
 	onClose,
 	onSave,
 	availableTables = [],
+	databaseName = 'Database',
+	initialData,
 }: CreateTableModalProps) {
 	const [tableName, setTableName] = useState('');
 	const [description, setDescription] = useState('');
@@ -74,19 +82,28 @@ export function CreateTableModal({
 	// Reset form when modal opens
 	useEffect(() => {
 		if (open) {
-			setTableName('');
-			setDescription('');
-			setColumns([
-				{
-					...INITIAL_NEW_COLUMN,
-					name: 'id',
-					data_type: 'integer',
-					is_primary_key: true,
-				},
-			]);
-			setForeignKeys([]);
+			if (initialData) {
+				// Editing mode - populate with initial data
+				setTableName(initialData.tableName);
+				setDescription(''); // Assuming no description for now, or fetch if available
+				setColumns(initialData.columns);
+				setForeignKeys(initialData.foreignKeys);
+			} else {
+				// Creation mode - reset
+				setTableName('');
+				setDescription('');
+				setColumns([
+					{
+						...INITIAL_NEW_COLUMN,
+						name: 'id',
+						data_type: 'integer',
+						is_primary_key: true,
+					},
+				]);
+				setForeignKeys([]);
+			}
 		}
-	}, [open]);
+	}, [open, initialData]);
 
 	const handleAddColumn = () => {
 		setColumns([...columns, { ...INITIAL_NEW_COLUMN }]);
@@ -111,8 +128,13 @@ export function CreateTableModal({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		console.log('CreateTableModal handleSubmit called');
-		await onSave(tableName, columns, foreignKeys);
-		onClose();
+		try {
+			await onSave(tableName, columns, foreignKeys);
+			onClose();
+		} catch (error) {
+			console.error('Failed to save table:', error);
+			// Modal stays open on error - error toast is shown by the caller
+		}
 	};
 
 	// Foreign key handlers
@@ -152,9 +174,13 @@ export function CreateTableModal({
 				{/* Header */}
 				<div className='p-6 border-b border-duck-dark-400/30 shrink-0'>
 					<h2 className='text-duck-base font-normal text-duck-white-50 flex items-center gap-2'>
-						Create a new table under{' '}
+						{initialData ? (
+							<>Edit Table '{initialData.tableName}'</>
+						) : (
+							<>Create a new table</>
+						)}
 						<span className='px-2 py-0.5 rounded bg-duck-dark-500 text-duck-white-500 text-duck-xs font-mono border border-duck-dark-400/50'>
-							"REPLACE WITH DB NAME"
+							{databaseName}
 						</span>
 					</h2>
 				</div>

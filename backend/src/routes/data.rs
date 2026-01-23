@@ -282,7 +282,7 @@ async fn get_primary_key(
     match db_type {
         DbType::Postgres => {
             let sql = "
-                SELECT c.column_name
+                SELECT ku.column_name::text
                 FROM information_schema.key_column_usage ku
                 JOIN information_schema.table_constraints tc 
                     ON ku.constraint_name = tc.constraint_name 
@@ -439,7 +439,6 @@ async fn delete_row(
     AuthSession(session): AuthSession,
     Path((name, id)): Path<(String, String)>,
 ) -> Json<ApiResponse<Value>> {
-    println!("DEBUG: delete_row called for table: {}, id: {}", name, id);
     if !is_valid_identifier(&name) {
         return Json(ApiResponse::error("Invalid table name"));
     }
@@ -450,12 +449,8 @@ async fn delete_row(
 
     // Get Primary Key column name
     let pk_col = match get_primary_key(&pool, &db_type, &name, &db_name).await {
-        Ok(pk) => {
-            println!("DEBUG: delete_row determined PK column: {}", pk);
-            pk
-        }
+        Ok(pk) => pk,
         Err(e) => {
-            println!("DEBUG: delete_row failed to determine PK: {}", e);
             return Json(ApiResponse::error(format!(
                 "Failed to determine primary key: {}",
                 e
@@ -474,22 +469,11 @@ async fn delete_row(
         table_quoted, pk_quoted, id_escaped
     );
 
-    println!("DEBUG: delete_row executing SQL: {}", sql);
-
     match sqlx::query(&sql).execute(&pool).await {
-        Ok(result) => {
-            println!(
-                "DEBUG: delete_row success. Rows affected: {}",
-                result.rows_affected()
-            );
-            Json(ApiResponse::success(json!({
-                "message": "Row deleted successfully",
-                "rows_affected": result.rows_affected()
-            })))
-        }
-        Err(e) => {
-            println!("DEBUG: delete_row database error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Ok(result) => Json(ApiResponse::success(json!({
+            "message": "Row deleted successfully",
+            "rows_affected": result.rows_affected()
+        }))),
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }

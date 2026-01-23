@@ -771,24 +771,37 @@ async fn alter_table(
             match db_type {
                 DbType::Postgres => {
                     // PostgreSQL requires multiple statements for full column modification
-                    // For now, handle rename + type change separately
+                    // We need to handle rename and type change separately
+
+                    // Step 1: Rename column if name changed
                     if old_name != col_def.name {
-                        // Rename first, then modify type
-                        format!(
+                        let rename_sql = format!(
                             "ALTER TABLE {} RENAME COLUMN {} TO {}",
                             table_name_quoted, old_name_quoted, new_name_quoted
-                        )
-                    } else {
-                        // Just change type
-                        format!(
-                            "ALTER TABLE {} ALTER COLUMN {} TYPE {} USING {}::{}",
-                            table_name_quoted,
-                            old_name_quoted,
-                            data_type,
-                            old_name_quoted,
-                            data_type
-                        )
+                        );
+                        println!("DEBUG: alter_table (PG rename) SQL: {}", rename_sql);
+                        if let Err(e) = sqlx::query(&rename_sql).execute(&pool).await {
+                            println!("DEBUG: alter_table (PG rename) error: {}", e);
+                            return Json(ApiResponse::error(e.to_string()));
+                        }
                     }
+
+                    // Step 2: Change type (always execute to update the column type)
+                    // Use the new column name after potential rename
+                    let col_name_for_type = if old_name != col_def.name {
+                        &new_name_quoted
+                    } else {
+                        &old_name_quoted
+                    };
+
+                    format!(
+                        "ALTER TABLE {} ALTER COLUMN {} TYPE {} USING {}::{}",
+                        table_name_quoted,
+                        col_name_for_type,
+                        data_type,
+                        col_name_for_type,
+                        data_type
+                    )
                 }
                 DbType::Mysql => {
                     let nullable = if col_def.nullable { "NULL" } else { "NOT NULL" };

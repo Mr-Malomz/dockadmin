@@ -14,6 +14,7 @@ import {
 	type ColumnInfo,
 	INITIAL_NEW_COLUMN,
 	COLUMN_TYPES,
+	normalizeDataType,
 } from '@/models';
 import { useState, useEffect } from 'react';
 
@@ -21,7 +22,7 @@ interface ColumnModalProps {
 	open: boolean;
 	onClose: () => void;
 	tableName: string;
-	onSave: (column: NewColumnDefinition) => void;
+	onSave: (column: NewColumnDefinition) => void | Promise<void>;
 	/** If provided, the modal will be in "edit" mode with pre-filled data */
 	editingColumn?: ColumnInfo | null;
 }
@@ -45,10 +46,11 @@ export function ColumnModal({
 			setValidationError(null); // Clear error on open
 			if (editingColumn) {
 				// Edit mode: populate with existing column data
+				// Normalize the data type to match dropdown options
 				setColumn({
 					name: editingColumn.name,
 					description: '',
-					data_type: editingColumn.data_type,
+					data_type: normalizeDataType(editingColumn.data_type),
 					default_value: editingColumn.default_value || '',
 					is_primary_key: editingColumn.is_primary_key,
 					nullable: editingColumn.nullable,
@@ -61,14 +63,19 @@ export function ColumnModal({
 		}
 	}, [open, editingColumn]);
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!column.data_type) {
 			setValidationError('Please select a data type.');
 			return;
 		}
-		onSave(column);
-		onClose();
+		try {
+			await onSave(column);
+			onClose();
+		} catch (error) {
+			console.error('Failed to save column:', error);
+			// Modal stays open on error - error toast is shown by the caller
+		}
 	};
 
 	const updateColumn = (field: keyof NewColumnDefinition, value: unknown) => {

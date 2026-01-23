@@ -90,6 +90,34 @@ async fn execute_query(
             }
         }
 
+        // Postgres handling: wrap in row_to_json to avoid Any driver type issues (e.g. Timestamp)
+        if matches!(db_type, DbType::Postgres) {
+            let clean_sql = sql.trim_end_matches(|c| c == ';' || char::is_whitespace(c));
+            let json_sql = format!(
+                "SELECT row_to_json(t)::text as json_row FROM ({}) t",
+                clean_sql
+            );
+
+            match sqlx::query(&json_sql).fetch_all(&pool).await {
+                Ok(rows) => {
+                    let data: Vec<Value> = rows
+                        .iter()
+                        .filter_map(|row| {
+                            row.try_get::<String, _>("json_row")
+                                .ok()
+                                .and_then(|json_str| serde_json::from_str(&json_str).ok())
+                        })
+                        .collect();
+
+                    return Json(ApiResponse::success(json!({
+                        "rows": data,
+                        "row_count": data.len()
+                    })));
+                }
+                Err(e) => return Json(ApiResponse::error(e.to_string())),
+            }
+        }
+
         // execute as SELECT and return rows
         match sqlx::query(&final_sql).fetch_all(&pool).await {
             Ok(rows) => {

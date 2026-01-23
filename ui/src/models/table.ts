@@ -60,3 +60,43 @@ export const COLUMN_TYPES = [
 ] as const;
 
 export type ColumnType = (typeof COLUMN_TYPES)[number];
+
+/**
+ * Normalizes database-specific type names to simplified types used in the UI dropdown.
+ * Handles variations like PostgreSQL's 'timestamp without time zone' -> 'timestamp'
+ */
+export function normalizeDataType(dbType: string): string {
+    const normalized = dbType.toLowerCase().trim();
+
+    // Timestamp variations
+    if (normalized.includes('timestamp')) return 'timestamp';
+
+    // Integer variations
+    if (normalized === 'int' || normalized === 'int4' || normalized === 'serial') return 'integer';
+    if (normalized === 'int8' || normalized === 'bigserial') return 'bigint';
+    if (normalized === 'smallint' || normalized === 'int2') return 'integer';
+
+    // Varchar/character varying
+    if (normalized.includes('character varying') || normalized.includes('varchar')) return 'varchar(255)';
+
+    // Boolean variations
+    if (normalized === 'bool') return 'boolean';
+
+    // JSON variations
+    if (normalized === 'jsonb') return 'json';
+
+    // Decimal/numeric
+    if (normalized.includes('numeric') || normalized.includes('decimal')) return 'decimal';
+
+    // Float/real/double
+    if (normalized.includes('float') || normalized === 'real' || normalized.includes('double')) return 'decimal';
+
+    // Check if it's already a valid type
+    if (COLUMN_TYPES.includes(normalized as ColumnType)) {
+        return normalized;
+    }
+
+    // Default fallback - return as-is (will show empty in dropdown but allows custom types)
+    return dbType;
+}
+
