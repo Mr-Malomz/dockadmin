@@ -13,14 +13,22 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Link2 } from 'lucide-react';
 import EditIcon from '@/assets/svgs/EditIcon';
 import DeleteIcon from '@/assets/svgs/DeleteIcon';
 import type { ColumnInfo, TableRow as RowData } from '@/models';
 
+// FK info for column indicators
+interface ForeignKeyInfo {
+	column_name: string;
+	foreign_table: string;
+	foreign_column: string;
+}
+
 interface DataGridProps {
 	columns: ColumnInfo[];
 	rows: RowData[];
+	foreignKeys?: ForeignKeyInfo[];
 	selectedRows: Set<string>;
 	onSelectRow: (rowId: string, selected: boolean) => void;
 	onSelectAll: (selected: boolean) => void;
@@ -31,6 +39,7 @@ interface DataGridProps {
 export function DataGrid({
 	columns,
 	rows,
+	foreignKeys = [],
 	selectedRows,
 	onSelectRow,
 	onSelectAll,
@@ -41,8 +50,25 @@ export function DataGrid({
 	const someSelected =
 		selectedRows.size > 0 && selectedRows.size < rows.length;
 
-	// Use index as the unique row identifier for consistent selection
-	const getRowId = (_row: RowData, index: number): string => {
+	// Create a map of column name to FK info for quick lookup
+	const fkMap = foreignKeys.reduce(
+		(acc, fk) => {
+			acc[fk.column_name] = fk;
+			return acc;
+		},
+		{} as Record<string, ForeignKeyInfo>,
+	);
+
+	// Use primary key as unique identifier, fallback to index
+	const getRowId = (row: RowData, index: number): string => {
+		const pkColumn = columns.find((col) => col.is_primary_key);
+		if (
+			pkColumn &&
+			row[pkColumn.name] !== undefined &&
+			row[pkColumn.name] !== null
+		) {
+			return String(row[pkColumn.name]);
+		}
 		return String(index);
 	};
 
@@ -75,7 +101,17 @@ export function DataGrid({
 								className='text-duck-white-700 text-duck-xs font-normal px-3 py-2 whitespace-nowrap border-l border-duck-dark-400/30'
 							>
 								<div className='flex items-center justify-between gap-2'>
-									<span>{column.name}</span>
+									<span className='flex items-center gap-1.5'>
+										{column.name}
+										{fkMap[column.name] && (
+											<span
+												title={`→ ${fkMap[column.name].foreign_table}.${fkMap[column.name].foreign_column}`}
+												className='text-duck-primary-400 cursor-help'
+											>
+												<Link2 className='w-3 h-3' />
+											</span>
+										)}
+									</span>
 									<DropdownMenu>
 										<DropdownMenuTrigger asChild>
 											<button className='p-0.5 rounded hover:bg-duck-dark-400/50 transition-colors'>

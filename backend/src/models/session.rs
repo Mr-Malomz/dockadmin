@@ -3,6 +3,7 @@ use sqlx::AnyPool;
 use std::time::Instant;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Session {
     pub token: String,
     pub pool: AnyPool,

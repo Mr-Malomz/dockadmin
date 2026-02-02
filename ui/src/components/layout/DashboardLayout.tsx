@@ -14,6 +14,9 @@ interface DashboardLayoutProps {
 	onSelectTable: (tableName: string) => void;
 	onNewTable: () => void;
 	onSQLEditor: () => void;
+	onEditTable: (tableName: string) => void;
+	onDeleteTable: (tableName: string) => void;
+	onLogout: () => void;
 }
 
 export function DashboardLayout({
@@ -28,6 +31,9 @@ export function DashboardLayout({
 	onSelectTable,
 	onNewTable,
 	onSQLEditor,
+	onEditTable,
+	onDeleteTable,
+	onLogout,
 }: DashboardLayoutProps) {
 	return (
 		<div className='h-screen bg-duck-dark-700 flex flex-col overflow-hidden'>
@@ -54,6 +60,9 @@ export function DashboardLayout({
 					onSelectTable={onSelectTable}
 					onNewTable={onNewTable}
 					onSQLEditor={onSQLEditor}
+					onEditTable={onEditTable}
+					onDeleteTable={onDeleteTable}
+					onLogout={onLogout}
 				/>
 				<main className='flex-1 flex flex-col min-h-0 bg-duck-dark-800 overflow-hidden'>
 					{children}

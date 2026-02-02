@@ -18,12 +18,12 @@ use crate::{
 
 pub fn routes(session_store: SessionStore) -> Router {
     Router::new()
-        // Read operations
+        // read operations
         .route("/tables", get(list_tables))
         .route("/table/{name}", get(get_table))
         .route("/table/{name}/indexes", get(get_indexes))
         .route("/table/{name}/foreign-keys", get(get_foreign_keys))
-        // Write operations
+        // write operations
         .route("/table", post(create_table))
         .route("/table/{name}", put(alter_table))
         .route("/table/{name}", delete(drop_table))
@@ -38,7 +38,7 @@ async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Valu
 
     let query = match db_type {
         DbType::Postgres => format!(
-            "SELECT table_name as name, table_type, NULL as row_count_estimate 
+            "SELECT table_name::text as name, table_type::text as table_type, NULL::bigint as row_count_estimate 
              FROM information_schema.tables 
              WHERE table_schema = 'public' 
              ORDER BY table_name"
@@ -46,7 +46,7 @@ async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Valu
         DbType::Mysql => {
             let safe_db_name = db_name.replace("'", "''");
             format!(
-                "SELECT table_name as name, table_type, table_rows as row_count_estimate 
+                "SELECT CAST(table_name AS CHAR) as name, CAST(table_type AS CHAR) as table_type, table_rows as row_count_estimate 
                  FROM information_schema.tables 
                  WHERE table_schema = '{}' 
                  ORDER BY table_name",
@@ -60,6 +60,7 @@ async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Valu
              ORDER BY name"
         ),
     };
+    // execute query with or without parameter binding
 
     match sqlx::query(&query).fetch_all(&pool).await {
         Ok(rows) => {
@@ -99,46 +100,60 @@ async fn get_table(
     let db_type = session.db_type;
     let db_name = session.database;
 
-    // Build query with proper escaping for each database type
+    // build query with proper escaping for each database type
     let (query, use_bind) = match db_type {
         DbType::Postgres => (
-            "SELECT column_name, data_type, is_nullable, column_default,
-                CASE WHEN pk.constraint_type = 'PRIMARY KEY' THEN true ELSE false END as is_primary
+            "SELECT c.column_name::text as column_name, c.data_type::text as data_type, 
+                c.is_nullable::text as is_nullable, c.column_default::text as column_default,
+                CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END as is_primary
              FROM information_schema.columns c
              LEFT JOIN (
-                 SELECT ku.table_schema, ku.table_name, ku.column_name, tc.constraint_type
+                 SELECT ku.column_name
                  FROM information_schema.key_column_usage ku
-                 JOIN information_schema.table_constraints tc ON ku.constraint_name = tc.constraint_name
+                 JOIN information_schema.table_constraints tc 
+                     ON ku.constraint_name = tc.constraint_name 
+                     AND ku.table_schema = tc.table_schema
                  WHERE tc.constraint_type = 'PRIMARY KEY'
-             ) pk ON c.table_schema = pk.table_schema AND c.table_name = pk.table_name AND c.column_name = pk.column_name
+                     AND tc.table_schema = 'public' 
+                     AND tc.table_name = $1
+             ) pk ON c.column_name = pk.column_name
              WHERE c.table_schema = 'public' AND c.table_name = $1
-             ORDER BY c.ordinal_position".to_string(),
-            true
+             ORDER BY c.ordinal_position"
+                .to_string(),
+            true,
         ),
         DbType::Mysql => {
-            // Escape single quotes for MySQL
+            // escape single quotes for MySQL
             let safe_db = db_name.replace("'", "''");
             let safe_name = name.replace("'", "''");
-            (format!(
-                "SELECT column_name, data_type, is_nullable, column_default,
-                    CASE WHEN column_key = 'PRI' THEN true ELSE false END as is_primary
+            // note: MySQL information_schema returns some columns as BLOB, so we CAST them to VARCHAR
+            (
+                format!(
+                    "SELECT CAST(COLUMN_NAME AS CHAR) as `column_name`, 
+                    CAST(DATA_TYPE AS CHAR) as `data_type`, 
+                    CAST(IS_NULLABLE AS CHAR) as `is_nullable`, 
+                    CAST(COLUMN_DEFAULT AS CHAR) as `column_default`,
+                    CASE WHEN COLUMN_KEY = 'PRI' THEN true ELSE false END as `is_primary`
                  FROM information_schema.columns
                  WHERE table_schema = '{}' AND table_name = '{}'
                  ORDER BY ordinal_position",
-                safe_db, safe_name
-            ), false)
-        },
+                    safe_db, safe_name
+                ),
+                false,
+            )
+        }
         DbType::Sqlite => (
             "SELECT name as column_name, type as data_type, 
                 CASE WHEN \"notnull\" = 0 THEN 'YES' ELSE 'NO' END as is_nullable, 
                 dflt_value as column_default, 
                 pk as is_primary
-             FROM pragma_table_info(?)".to_string(),
-            true
+             FROM pragma_table_info(?)"
+                .to_string(),
+            true,
         ),
     };
 
-    // Execute query with or without parameter binding
+    // execute query with or without parameter binding
     let result = if use_bind {
         sqlx::query(&query).bind(&name).fetch_all(&pool).await
     } else {
@@ -150,21 +165,70 @@ async fn get_table(
             let columns: Vec<ColumnInfo> = rows
                 .into_iter()
                 .map(|row| {
-                    // Normalize is_primary: Try bool (PG/MySQL), fallback to int relative to 1 (SQLite)
+                    // normalize is_primary: try bool (PG/MySQL), fallback to int relative to 1 (SQLite uses 'pk')
                     let is_primary_key: bool = row
                         .try_get("is_primary")
+                        .or_else(|_| row.try_get::<i64, _>("pk").map(|pk| pk > 0)) // SQLite PRAGMA column
                         .unwrap_or_else(|_| row.try_get::<i64, _>("is_primary").unwrap_or(0) == 1);
 
-                    // Normalize is_nullable: PG/MySQL/SQLite query returns "YES"/"NO" (String)
-                    let is_nullable_str: String = row.try_get("is_nullable").unwrap_or_default();
-                    let nullable = is_nullable_str.eq_ignore_ascii_case("YES");
+                    // normalize is_nullable: try lowercase first, then uppercase for MySQL, then SQLite 'notnull'
+                    let nullable: bool = row
+                        .try_get::<String, _>("is_nullable")
+                        .or_else(|_| row.try_get::<String, _>("IS_NULLABLE"))
+                        .map(|s| s.eq_ignore_ascii_case("YES"))
+                        .unwrap_or_else(|_| {
+                            // SQLite PRAGMA uses 'notnull' where 0 = nullable, 1 = not null
+                            row.try_get::<i64, _>("notnull")
+                                .map(|nn| nn == 0)
+                                .unwrap_or(true)
+                        });
+
+                    // try lowercase first, then uppercase for MySQL, then SQLite 'name'
+                    let name: String = row
+                        .try_get("column_name")
+                        .or_else(|_| row.try_get("COLUMN_NAME"))
+                        .or_else(|_| row.try_get("name")) // SQLite PRAGMA column
+                        .unwrap_or_default();
+
+                    // for MySQL, data_type may come as BLOB, so try bytes first then string
+                    // For SQLite PRAGMA, column is 'type'
+                    let data_type: String = row
+                        .try_get::<String, _>("data_type")
+                        .or_else(|_| row.try_get::<String, _>("DATA_TYPE"))
+                        .or_else(|_| row.try_get::<String, _>("type")) // SQLite PRAGMA column
+                        .or_else(|_| {
+                            // try as bytes and convert to string
+                            row.try_get::<Vec<u8>, _>("data_type")
+                                .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+                        })
+                        .unwrap_or_default();
+
+                    // Normalize SQLite types for consistency (SQLite returns exact type from CREATE TABLE)
+                    let data_type = if matches!(db_type, DbType::Sqlite) {
+                        match data_type.to_uppercase().as_str() {
+                            "DATETIME" | "TIMESTAMP" => "DATETIME".to_string(),
+                            "DATE" => "DATE".to_string(),
+                            "INT" | "INTEGER" => "INTEGER".to_string(),
+                            "REAL" | "DOUBLE" | "FLOAT" => "REAL".to_string(),
+                            "BOOL" | "BOOLEAN" => "BOOLEAN".to_string(),
+                            "TEXT" | "CHAR" | "VARCHAR" | "CLOB" => "TEXT".to_string(),
+                            "BLOB" => "BLOB".to_string(),
+                            _ => data_type, // Keep original if unrecognized
+                        }
+                    } else {
+                        data_type
+                    };
 
                     ColumnInfo {
-                        name: row.try_get("column_name").unwrap_or_default(),
-                        data_type: row.try_get("data_type").unwrap_or_default(),
+                        name,
+                        data_type,
                         nullable,
                         is_primary_key,
-                        default_value: row.try_get("column_default").ok(),
+                        default_value: row
+                            .try_get("column_default")
+                            .or_else(|_| row.try_get("COLUMN_DEFAULT"))
+                            .or_else(|_| row.try_get("dflt_value")) // SQLite PRAGMA column
+                            .ok(),
                     }
                 })
                 .collect();
@@ -184,7 +248,7 @@ async fn get_indexes(
     let db_type = session.db_type;
     let db_name = session.database;
 
-    // We use an async block to allow using the `?` operator for error handling
+    // use an async block to allow using the `?` operator for error handling
     let result: Result<Vec<IndexInfo>, String> = async {
         match db_type {
             DbType::Postgres => {
@@ -333,10 +397,10 @@ async fn get_foreign_keys(
             DbType::Postgres => {
                 let sql = "
                     SELECT
-                        tc.constraint_name,
-                        kcu.column_name,
-                        ccu.table_name AS foreign_table,
-                        ccu.column_name AS foreign_column
+                        tc.constraint_name::TEXT as constraint_name,
+                        kcu.column_name::TEXT as column_name,
+                        ccu.table_name::TEXT AS foreign_table,
+                        ccu.column_name::TEXT AS foreign_column
                     FROM information_schema.table_constraints AS tc
                     JOIN information_schema.key_column_usage AS kcu
                       ON tc.constraint_name = kcu.constraint_name
@@ -463,8 +527,19 @@ async fn create_table(
             }
         } else {
             match col.data_type.to_uppercase().as_str() {
-                "TEXT" | "STRING" | "VARCHAR" => "TEXT",
-                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "TEXT" | "STRING" => "TEXT",
+                "VARCHAR" | "VARCHAR(255)" => match db_type {
+                    DbType::Postgres => "VARCHAR(255)",
+                    DbType::Mysql => "VARCHAR(255)",
+                    DbType::Sqlite => "TEXT",
+                },
+                "INT" | "INTEGER" | "NUMBER" | "INT4" => "INTEGER",
+                "BIGINT" | "INT8" => match db_type {
+                    DbType::Postgres => "BIGINT",
+                    DbType::Mysql => "BIGINT",
+                    DbType::Sqlite => "INTEGER",
+                },
+                "SMALLINT" | "INT2" => "SMALLINT",
                 "BOOL" | "BOOLEAN" => match db_type {
                     DbType::Postgres => "BOOLEAN",
                     _ => "INTEGER", // MySQL/SQLite use 0/1 usually
@@ -473,10 +548,22 @@ async fn create_table(
                     DbType::Postgres => "TIMESTAMP",
                     _ => "DATETIME",
                 },
+                "DATE" => "DATE",
+                "TIME" => "TIME",
                 "FLOAT" | "REAL" | "DOUBLE" => "REAL",
+                "DECIMAL" | "NUMERIC" => match db_type {
+                    DbType::Postgres => "DECIMAL",
+                    DbType::Mysql => "DECIMAL(10,2)",
+                    DbType::Sqlite => "REAL",
+                },
                 "UUID" => match db_type {
                     DbType::Postgres => "UUID",
-                    _ => "TEXT",
+                    _ => "VARCHAR(36)",
+                },
+                "JSON" | "JSONB" => match db_type {
+                    DbType::Postgres => "JSONB",
+                    DbType::Mysql => "JSON",
+                    DbType::Sqlite => "TEXT",
                 },
                 _ => "TEXT", // Fallback
             }
@@ -502,18 +589,20 @@ async fn create_table(
 
         // DEFAULT value
         if let Some(ref default_val) = col.default_value {
-            // Handle common defaults
-            let default_clause = match default_val.to_uppercase().as_str() {
-                "NULL" => "DEFAULT NULL".to_string(),
-                "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
-                    DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                    DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                    DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                },
-                "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
-                _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
-            };
-            constraints.push(default_clause);
+            if !default_val.is_empty() {
+                // Handle common defaults
+                let default_clause = match default_val.to_uppercase().as_str() {
+                    "NULL" => "DEFAULT NULL".to_string(),
+                    "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
+                        DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                        DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                        DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                    },
+                    "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
+                    _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
+                };
+                constraints.push(default_clause);
+            }
         }
 
         let constraints_str = constraints.join(" ");
@@ -524,13 +613,66 @@ async fn create_table(
         );
     }
 
-    // construct SQL
+    // Build foreign key constraints (only if FKs exist)
+    let mut fk_constraints = Vec::new();
+    for fk in &payload.foreign_keys {
+        // Validate identifiers
+        if !is_valid_identifier(&fk.source_column)
+            || !is_valid_identifier(&fk.target_table)
+            || !is_valid_identifier(&fk.target_column)
+        {
+            return Json(ApiResponse::error(&format!(
+                "Invalid foreign key identifier: {} -> {}.{}",
+                fk.source_column, fk.target_table, fk.target_column
+            )));
+        }
+
+        // Validate ON DELETE action
+        let on_delete_action = match fk.on_delete.to_uppercase().as_str() {
+            "RESTRICT" => "RESTRICT",
+            "CASCADE" => "CASCADE",
+            "SET NULL" => "SET NULL",
+            "SET DEFAULT" => "SET DEFAULT",
+            "NO ACTION" => "NO ACTION",
+            _ => "RESTRICT", // Default fallback
+        };
+
+        let source_col = quote_identifier(&fk.source_column, &db_type);
+        let target_table = quote_identifier(&fk.target_table, &db_type);
+        let target_col = quote_identifier(&fk.target_column, &db_type);
+
+        // Generate FK constraint based on DB type
+        let fk_constraint = match db_type {
+            DbType::Postgres | DbType::Mysql => {
+                // Table-level constraint syntax works for both
+                format!(
+                    "FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE {}",
+                    source_col, target_table, target_col, on_delete_action
+                )
+            }
+            DbType::Sqlite => {
+                // SQLite also supports table-level constraints
+                format!(
+                    "FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE {}",
+                    source_col, target_table, target_col, on_delete_action
+                )
+            }
+        };
+
+        fk_constraints.push(fk_constraint);
+    }
+
+    // construct SQL with columns and foreign keys
     let table_name_quoted = quote_identifier(&payload.name, &db_type);
-    let sql = format!(
-        "CREATE TABLE {} ({})",
-        table_name_quoted,
+
+    // Combine column definitions and FK constraints
+    let all_defs = if fk_constraints.is_empty() {
         column_defs.join(", ")
-    );
+    } else {
+        format!("{}, {}", column_defs.join(", "), fk_constraints.join(", "))
+    };
+
+    let sql = format!("CREATE TABLE {} ({})", table_name_quoted, all_defs);
 
     // execute the query
     match sqlx::query(&sql).execute(&pool).await {
@@ -585,26 +727,76 @@ async fn alter_table(
             }
             let name_quoted = quote_identifier(&col_def.name, &db_type);
 
-            // Re-using type mapping logic
+            // Re-using type mapping logic (matching create_table)
             let data_type = match col_def.data_type.to_uppercase().as_str() {
                 "TEXT" | "STRING" => "TEXT",
-                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "VARCHAR" | "VARCHAR(255)" => match db_type {
+                    DbType::Postgres => "VARCHAR(255)",
+                    DbType::Mysql => "VARCHAR(255)",
+                    DbType::Sqlite => "TEXT",
+                },
+                "INT" | "INTEGER" | "NUMBER" | "INT4" => "INTEGER",
+                "BIGINT" | "INT8" => match db_type {
+                    DbType::Postgres => "BIGINT",
+                    DbType::Mysql => "BIGINT",
+                    DbType::Sqlite => "INTEGER",
+                },
                 "BOOL" | "BOOLEAN" => match db_type {
                     DbType::Postgres => "BOOLEAN",
                     _ => "INTEGER",
                 },
-                "DATETIME" => match db_type {
+                "DATETIME" | "TIMESTAMP" => match db_type {
                     DbType::Postgres => "TIMESTAMP",
                     _ => "DATETIME",
                 },
-                _ => "TEXT",
+                "DATE" => "DATE",
+                "TIME" => "TIME",
+                "FLOAT" | "REAL" | "DOUBLE" => "REAL",
+                "DECIMAL" | "NUMERIC" => match db_type {
+                    DbType::Postgres => "DECIMAL",
+                    DbType::Mysql => "DECIMAL(10,2)",
+                    DbType::Sqlite => "REAL",
+                },
+                "UUID" => match db_type {
+                    DbType::Postgres => "UUID",
+                    _ => "VARCHAR(36)",
+                },
+                "JSON" | "JSONB" => match db_type {
+                    DbType::Postgres => "JSONB",
+                    DbType::Mysql => "JSON",
+                    DbType::Sqlite => "TEXT",
+                },
+                _ => "TEXT", // Fallback
             };
 
             let nullable = if col_def.nullable { "" } else { "NOT NULL" };
+
+            // Handle DEFAULT value (required for NOT NULL columns on populated tables)
+            let default_clause = if let Some(ref default_val) = col_def.default_value {
+                if !default_val.is_empty() {
+                    match default_val.to_uppercase().as_str() {
+                        "NULL" => "DEFAULT NULL".to_string(),
+                        "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
+                            DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                            DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                            DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                        },
+                        "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
+                        _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
+                    }
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
             format!(
-                "ALTER TABLE {} ADD COLUMN {} {} {}",
-                table_name_quoted, name_quoted, data_type, nullable
+                "ALTER TABLE {} ADD COLUMN {} {} {} {}",
+                table_name_quoted, name_quoted, data_type, default_clause, nullable
             )
+            .trim()
+            .to_string()
         }
         AlterType::DropColumn => {
             let col_name = match payload.column_name {
@@ -620,7 +812,145 @@ async fn alter_table(
                 table_name_quoted, col_name_quoted
             )
         }
+        AlterType::ModifyColumn => {
+            // Get old column name and new column definition
+            let old_name = match payload.old_column_name {
+                Some(n) => n,
+                None => {
+                    return Json(ApiResponse::error(
+                        "Old column name required for Modify Column",
+                    ));
+                }
+            };
+            let col_def = match payload.column_definition {
+                Some(c) => c,
+                None => {
+                    return Json(ApiResponse::error(
+                        "Column definition required for Modify Column",
+                    ));
+                }
+            };
+            if !is_valid_identifier(&old_name) || !is_valid_identifier(&col_def.name) {
+                return Json(ApiResponse::error("Invalid column name"));
+            }
+
+            let old_name_quoted = quote_identifier(&old_name, &db_type);
+            let new_name_quoted = quote_identifier(&col_def.name, &db_type);
+
+            // Map data type
+            let data_type = match col_def.data_type.to_uppercase().as_str() {
+                "TEXT" | "STRING" => "TEXT",
+                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "BOOL" | "BOOLEAN" => match db_type {
+                    DbType::Postgres => "BOOLEAN",
+                    _ => "INTEGER",
+                },
+                "DATETIME" | "TIMESTAMP" => match db_type {
+                    DbType::Postgres => "TIMESTAMP",
+                    _ => "DATETIME",
+                },
+                "DATE" => "DATE",
+                "TIME" => "TIME",
+                "VARCHAR" | "VARCHAR(255)" => match db_type {
+                    DbType::Sqlite => "TEXT",
+                    _ => "VARCHAR(255)",
+                },
+                _ => "TEXT",
+            };
+
+            // PostgreSQL uses different syntax for modifying columns
+            match db_type {
+                DbType::Postgres => {
+                    // PostgreSQL requires multiple statements for full column modification
+                    // We need to handle rename and type change separately
+
+                    // Step 1: Rename column if name changed
+                    if old_name != col_def.name {
+                        let rename_sql = format!(
+                            "ALTER TABLE {} RENAME COLUMN {} TO {}",
+                            table_name_quoted, old_name_quoted, new_name_quoted
+                        );
+                        if let Err(e) = sqlx::query(&rename_sql).execute(&pool).await {
+                            return Json(ApiResponse::error(e.to_string()));
+                        }
+                    }
+
+                    // Step 2: Change type (always execute to update the column type)
+                    // Use the new column name after potential rename
+                    let col_name_for_type = if old_name != col_def.name {
+                        &new_name_quoted
+                    } else {
+                        &old_name_quoted
+                    };
+
+                    format!(
+                        "ALTER TABLE {} ALTER COLUMN {} TYPE {} USING {}::{}",
+                        table_name_quoted,
+                        col_name_for_type,
+                        data_type,
+                        col_name_for_type,
+                        data_type
+                    )
+                }
+                DbType::Mysql => {
+                    let nullable = if col_def.nullable { "NULL" } else { "NOT NULL" };
+                    format!(
+                        "ALTER TABLE {} CHANGE COLUMN {} {} {} {}",
+                        table_name_quoted, old_name_quoted, new_name_quoted, data_type, nullable
+                    )
+                }
+                DbType::Sqlite => {
+                    // SQLite doesn't support modifying columns directly
+                    // For now, return an error
+                    return Json(ApiResponse::error(
+                        "SQLite does not support modifying columns directly. Drop and recreate the column instead.",
+                    ));
+                }
+            }
+        }
+        AlterType::RenameColumn => {
+            let old_name = match payload.old_column_name {
+                Some(n) => n,
+                None => {
+                    return Json(ApiResponse::error(
+                        "Old column name required for Rename Column",
+                    ));
+                }
+            };
+            let new_name = match payload.column_name {
+                Some(n) => n,
+                None => {
+                    return Json(ApiResponse::error(
+                        "New column name required for Rename Column",
+                    ));
+                }
+            };
+            if !is_valid_identifier(&old_name) || !is_valid_identifier(&new_name) {
+                return Json(ApiResponse::error("Invalid column name"));
+            }
+
+            let old_name_quoted = quote_identifier(&old_name, &db_type);
+            let new_name_quoted = quote_identifier(&new_name, &db_type);
+
+            match db_type {
+                DbType::Postgres | DbType::Sqlite => {
+                    format!(
+                        "ALTER TABLE {} RENAME COLUMN {} TO {}",
+                        table_name_quoted, old_name_quoted, new_name_quoted
+                    )
+                }
+                DbType::Mysql => {
+                    // MySQL requires specifying the column definition when renaming
+                    // For simplicity, we'll use RENAME COLUMN in newer MySQL 8.0+
+                    format!(
+                        "ALTER TABLE {} RENAME COLUMN {} TO {}",
+                        table_name_quoted, old_name_quoted, new_name_quoted
+                    )
+                }
+            }
+        }
     };
+
     match sqlx::query(&sql).execute(&pool).await {
         Ok(_) => Json(ApiResponse::success(json!({
             "message": "Table altered successfully",

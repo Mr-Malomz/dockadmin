@@ -1,19 +1,20 @@
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import DeleteIcon from '@/assets/svgs/DeleteIcon';
+import { useState } from 'react';
 
 interface DeleteConfirmModalProps {
 	open: boolean;
 	onClose: () => void;
 	/** Type of item being deleted: 'row', 'column', etc. */
-	itemType: 'row' | 'column';
+	itemType: 'row' | 'column' | 'table';
 	/** Number of items to delete */
 	itemCount: number;
 	/** Name of the table/container */
 	tableName: string;
 	/** Optional: name of the item being deleted (for single column deletion) */
 	itemName?: string;
-	onConfirm: () => void;
+	onConfirm: () => void | Promise<void>;
 }
 
 export function DeleteConfirmModal({
@@ -25,15 +26,28 @@ export function DeleteConfirmModal({
 	itemName,
 	onConfirm,
 }: DeleteConfirmModalProps) {
-	const handleConfirm = () => {
-		onConfirm();
-		onClose();
+	const [isDeleting, setIsDeleting] = useState(false);
+
+	const handleConfirm = async () => {
+		setIsDeleting(true);
+		try {
+			await onConfirm();
+			onClose();
+		} catch (error) {
+			console.error('Failed to delete:', error);
+			// Modal stays open on error - error toast is shown by the caller
+		} finally {
+			setIsDeleting(false);
+		}
 	};
 
 	// Generate display text based on item type and count
 	const getItemText = () => {
 		if (itemType === 'column' && itemName) {
 			return `column "${itemName}"`;
+		}
+		if (itemType === 'table') {
+			return `table "${tableName}"`;
 		}
 		return `${itemCount} ${itemType}${itemCount > 1 ? 's' : ''}`;
 	};
@@ -49,11 +63,23 @@ export function DeleteConfirmModal({
 						<DeleteIcon className='text-red-400 w-6 h-6' />
 					</div>
 					<h2 className='text-duck-base font-normal text-duck-white-50 text-center'>
-						Delete {itemText} from{' '}
-						<span className='text-duck-primary-500'>
-							{tableName}
-						</span>
-						?
+						{itemType === 'table' ? (
+							<>
+								Delete table{' '}
+								<span className='text-duck-primary-500'>
+									{tableName}
+								</span>
+								?
+							</>
+						) : (
+							<>
+								Delete {itemText} from{' '}
+								<span className='text-duck-primary-500'>
+									{tableName}
+								</span>
+								?
+							</>
+						)}
 					</h2>
 				</div>
 
@@ -73,6 +99,7 @@ export function DeleteConfirmModal({
 						variant='outline'
 						onClick={onClose}
 						className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
+						disabled={isDeleting}
 					>
 						Cancel
 					</Button>
@@ -80,8 +107,9 @@ export function DeleteConfirmModal({
 						type='button'
 						onClick={handleConfirm}
 						className='bg-red-500 hover:bg-red-600 text-white text-duck-sm font-normal border border-red-700'
+						disabled={isDeleting}
 					>
-						Delete
+						{isDeleting ? 'Deleting...' : 'Delete'}
 					</Button>
 				</DialogFooter>
 			</DialogContent>

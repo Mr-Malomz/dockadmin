@@ -47,10 +47,26 @@ pub struct ColumnDefinition {
     pub default_value: Option<String>,
 }
 
+/// Foreign key definition for table creation
+#[derive(Debug, Deserialize)]
+pub struct ForeignKeyDefinition {
+    pub source_column: String,
+    pub target_table: String,
+    pub target_column: String,
+    #[serde(default = "default_on_delete")]
+    pub on_delete: String, // RESTRICT, CASCADE, SET NULL, NO ACTION
+}
+
+fn default_on_delete() -> String {
+    "RESTRICT".to_string()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateTableRequest {
     pub name: String,
     pub columns: Vec<ColumnDefinition>,
+    #[serde(default)]
+    pub foreign_keys: Vec<ForeignKeyDefinition>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,6 +74,8 @@ pub enum AlterType {
     RenameTable,
     AddColumn,
     DropColumn,
+    ModifyColumn,
+    RenameColumn,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,4 +84,5 @@ pub struct AlterTableRequest {
     pub new_name: Option<String>,
     pub column_definition: Option<ColumnDefinition>,
     pub column_name: Option<String>,
+    pub old_column_name: Option<String>, // For ModifyColumn/RenameColumn
 }

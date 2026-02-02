@@ -14,6 +14,7 @@ import {
 	type ColumnInfo,
 	INITIAL_NEW_COLUMN,
 	COLUMN_TYPES,
+	normalizeDataType,
 } from '@/models';
 import { useState, useEffect } from 'react';
 
@@ -21,7 +22,7 @@ interface ColumnModalProps {
 	open: boolean;
 	onClose: () => void;
 	tableName: string;
-	onSave: (column: NewColumnDefinition) => void;
+	onSave: (column: NewColumnDefinition) => void | Promise<void>;
 	/** If provided, the modal will be in "edit" mode with pre-filled data */
 	editingColumn?: ColumnInfo | null;
 }
@@ -35,20 +36,23 @@ export function ColumnModal({
 }: ColumnModalProps) {
 	const [column, setColumn] =
 		useState<NewColumnDefinition>(INITIAL_NEW_COLUMN);
+	const [validationError, setValidationError] = useState<string | null>(null);
 
 	const isEditMode = !!editingColumn;
 
 	// Reset or populate form when modal opens
 	useEffect(() => {
 		if (open) {
+			setValidationError(null); // Clear error on open
 			if (editingColumn) {
 				// Edit mode: populate with existing column data
+				// Normalize the data type to match dropdown options
 				setColumn({
 					name: editingColumn.name,
 					description: '',
-					dataType: editingColumn.dataType,
-					defaultValue: editingColumn.defaultValue || '',
-					isPrimaryKey: editingColumn.isPrimaryKey,
+					data_type: normalizeDataType(editingColumn.data_type),
+					default_value: editingColumn.default_value || '',
+					is_primary_key: editingColumn.is_primary_key,
 					nullable: editingColumn.nullable,
 					unique: false, // ColumnInfo doesn't have unique, default to false
 				});
@@ -59,14 +63,26 @@ export function ColumnModal({
 		}
 	}, [open, editingColumn]);
 
-	const handleSubmit = (e: React.FormEvent) => {
+	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		onSave(column);
-		onClose();
+		if (!column.data_type) {
+			setValidationError('Please select a data type.');
+			return;
+		}
+		try {
+			await onSave(column);
+			onClose();
+		} catch (error) {
+			console.error('Failed to save column:', error);
+			// Modal stays open on error - error toast is shown by the caller
+		}
 	};
 
 	const updateColumn = (field: keyof NewColumnDefinition, value: unknown) => {
 		setColumn((prev) => ({ ...prev, [field]: value }));
+		if (field === 'data_type' && value) {
+			setValidationError(null);
+		}
 	};
 
 	return (
@@ -97,7 +113,7 @@ export function ColumnModal({
 						<div className='p-6 space-y-4'>
 							<div className='space-y-2'>
 								<label className='text-duck-white-700 text-duck-sm font-normal'>
-									Name
+									Name <span className='text-red-500'>*</span>
 								</label>
 								<Input
 									type='text'
@@ -122,7 +138,7 @@ export function ColumnModal({
 									onChange={(e) =>
 										updateColumn(
 											'description',
-											e.target.value
+											e.target.value,
 										)
 									}
 									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
@@ -141,12 +157,12 @@ export function ColumnModal({
 						<div className='p-6 space-y-4'>
 							<div className='space-y-2'>
 								<label className='text-duck-white-700 text-duck-sm font-normal'>
-									Type
+									Type <span className='text-red-500'>*</span>
 								</label>
 								<Select
-									value={column.dataType}
+									value={column.data_type}
 									onValueChange={(value) =>
-										updateColumn('dataType', value)
+										updateColumn('data_type', value)
 									}
 								>
 									<SelectTrigger className='w-full h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800'>
@@ -173,11 +189,11 @@ export function ColumnModal({
 								<Input
 									type='text'
 									placeholder='NULL'
-									value={column.defaultValue}
+									value={column.default_value}
 									onChange={(e) =>
 										updateColumn(
-											'defaultValue',
-											e.target.value
+											'default_value',
+											e.target.value,
 										)
 									}
 									className='h-10 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 placeholder:text-duck-dark-300 text-duck-sm'
@@ -197,9 +213,9 @@ export function ColumnModal({
 							{/* Primary Key */}
 							<div className='flex items-start gap-3'>
 								<Switch
-									checked={column.isPrimaryKey}
+									checked={column.is_primary_key}
 									onCheckedChange={(checked) =>
-										updateColumn('isPrimaryKey', checked)
+										updateColumn('is_primary_key', checked)
 									}
 									className='data-[state=checked]:bg-duck-primary-500 mt-0.5'
 								/>
@@ -258,21 +274,28 @@ export function ColumnModal({
 					</div>
 
 					{/* Footer with Cancel and Save buttons */}
-					<DialogFooter className='p-6 gap-2'>
-						<Button
-							type='button'
-							variant='outline'
-							onClick={onClose}
-							className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
-						>
-							Cancel
-						</Button>
-						<Button
-							type='submit'
-							className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
-						>
-							{isEditMode ? 'Save Changes' : 'Save'}
-						</Button>
+					<DialogFooter className='p-6 gap-2 flex-col sm:flex-row'>
+						{validationError && (
+							<div className='text-red-500 text-sm mr-auto'>
+								{validationError}
+							</div>
+						)}
+						<div className='flex gap-2 ml-auto'>
+							<Button
+								type='button'
+								variant='outline'
+								onClick={onClose}
+								className='bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-500 text-duck-sm font-normal'
+							>
+								Cancel
+							</Button>
+							<Button
+								type='submit'
+								className='bg-duck-primary-500 hover:bg-duck-primary-600 text-duck-white-500 text-duck-sm font-normal border border-duck-primary-900'
+							>
+								{isEditMode ? 'Save Changes' : 'Save'}
+							</Button>
+						</div>
 					</DialogFooter>
 				</form>
 			</DialogContent>
