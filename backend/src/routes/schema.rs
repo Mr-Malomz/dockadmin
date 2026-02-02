@@ -60,11 +60,10 @@ async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Valu
              ORDER BY name"
         ),
     };
-    println!("DEBUG: list_tables query: {}", query);
+    // execute query with or without parameter binding
 
     match sqlx::query(&query).fetch_all(&pool).await {
         Ok(rows) => {
-            println!("DEBUG: list_tables returned {} rows", rows.len());
             let tables: Vec<TableInfo> = rows
                 .into_iter()
                 .map(|row| {
@@ -88,10 +87,7 @@ async fn list_tables(AuthSession(session): AuthSession) -> Json<ApiResponse<Valu
 
             Json(ApiResponse::success(json!({ "tables": tables })))
         }
-        Err(e) => {
-            println!("DEBUG: list_tables error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
@@ -166,44 +162,62 @@ async fn get_table(
 
     match result {
         Ok(rows) => {
-            println!("DEBUG: get_table returned {} column rows", rows.len());
             let columns: Vec<ColumnInfo> = rows
                 .into_iter()
                 .map(|row| {
-                    // normalize is_primary: try bool (PG/MySQL), fallback to int relative to 1 (SQLite)
+                    // normalize is_primary: try bool (PG/MySQL), fallback to int relative to 1 (SQLite uses 'pk')
                     let is_primary_key: bool = row
                         .try_get("is_primary")
+                        .or_else(|_| row.try_get::<i64, _>("pk").map(|pk| pk > 0)) // SQLite PRAGMA column
                         .unwrap_or_else(|_| row.try_get::<i64, _>("is_primary").unwrap_or(0) == 1);
 
-                    // normalize is_nullable: try lowercase first, then uppercase for MySQL
-                    let is_nullable_str: String = row
-                        .try_get("is_nullable")
-                        .or_else(|_| row.try_get("IS_NULLABLE"))
-                        .unwrap_or_default();
-                    let nullable = is_nullable_str.eq_ignore_ascii_case("YES");
+                    // normalize is_nullable: try lowercase first, then uppercase for MySQL, then SQLite 'notnull'
+                    let nullable: bool = row
+                        .try_get::<String, _>("is_nullable")
+                        .or_else(|_| row.try_get::<String, _>("IS_NULLABLE"))
+                        .map(|s| s.eq_ignore_ascii_case("YES"))
+                        .unwrap_or_else(|_| {
+                            // SQLite PRAGMA uses 'notnull' where 0 = nullable, 1 = not null
+                            row.try_get::<i64, _>("notnull")
+                                .map(|nn| nn == 0)
+                                .unwrap_or(true)
+                        });
 
-                    // try lowercase first, then uppercase for MySQL compatibility
+                    // try lowercase first, then uppercase for MySQL, then SQLite 'name'
                     let name: String = row
                         .try_get("column_name")
                         .or_else(|_| row.try_get("COLUMN_NAME"))
+                        .or_else(|_| row.try_get("name")) // SQLite PRAGMA column
                         .unwrap_or_default();
 
                     // for MySQL, data_type may come as BLOB, so try bytes first then string
+                    // For SQLite PRAGMA, column is 'type'
                     let data_type: String = row
                         .try_get::<String, _>("data_type")
                         .or_else(|_| row.try_get::<String, _>("DATA_TYPE"))
+                        .or_else(|_| row.try_get::<String, _>("type")) // SQLite PRAGMA column
                         .or_else(|_| {
                             // try as bytes and convert to string
                             row.try_get::<Vec<u8>, _>("data_type")
-                                .or_else(|_| row.try_get::<Vec<u8>, _>(1))
                                 .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
                         })
                         .unwrap_or_default();
 
-                    println!(
-                        "DEBUG: get_table column: {} type: {} primary: {} nullable: {}",
-                        name, data_type, is_primary_key, nullable
-                    );
+                    // Normalize SQLite types for consistency (SQLite returns exact type from CREATE TABLE)
+                    let data_type = if matches!(db_type, DbType::Sqlite) {
+                        match data_type.to_uppercase().as_str() {
+                            "DATETIME" | "TIMESTAMP" => "DATETIME".to_string(),
+                            "DATE" => "DATE".to_string(),
+                            "INT" | "INTEGER" => "INTEGER".to_string(),
+                            "REAL" | "DOUBLE" | "FLOAT" => "REAL".to_string(),
+                            "BOOL" | "BOOLEAN" => "BOOLEAN".to_string(),
+                            "TEXT" | "CHAR" | "VARCHAR" | "CLOB" => "TEXT".to_string(),
+                            "BLOB" => "BLOB".to_string(),
+                            _ => data_type, // Keep original if unrecognized
+                        }
+                    } else {
+                        data_type
+                    };
 
                     ColumnInfo {
                         name,
@@ -213,6 +227,7 @@ async fn get_table(
                         default_value: row
                             .try_get("column_default")
                             .or_else(|_| row.try_get("COLUMN_DEFAULT"))
+                            .or_else(|_| row.try_get("dflt_value")) // SQLite PRAGMA column
                             .ok(),
                     }
                 })
@@ -220,10 +235,7 @@ async fn get_table(
 
             Json(ApiResponse::success(json!({ "columns": columns })))
         }
-        Err(e) => {
-            println!("DEBUG: get_table error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
@@ -577,18 +589,20 @@ async fn create_table(
 
         // DEFAULT value
         if let Some(ref default_val) = col.default_value {
-            // Handle common defaults
-            let default_clause = match default_val.to_uppercase().as_str() {
-                "NULL" => "DEFAULT NULL".to_string(),
-                "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
-                    DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                    DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                    DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
-                },
-                "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
-                _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
-            };
-            constraints.push(default_clause);
+            if !default_val.is_empty() {
+                // Handle common defaults
+                let default_clause = match default_val.to_uppercase().as_str() {
+                    "NULL" => "DEFAULT NULL".to_string(),
+                    "CURRENT_TIMESTAMP" | "NOW()" => match db_type {
+                        DbType::Postgres => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                        DbType::Mysql => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                        DbType::Sqlite => "DEFAULT CURRENT_TIMESTAMP".to_string(),
+                    },
+                    "TRUE" | "FALSE" => format!("DEFAULT {}", default_val.to_uppercase()),
+                    _ => format!("DEFAULT '{}'", default_val.replace("'", "''")),
+                };
+                constraints.push(default_clause);
+            }
         }
 
         let constraints_str = constraints.join(" ");
@@ -607,7 +621,7 @@ async fn create_table(
         column_defs.join(", ")
     );
 
-    println!("DEBUG: create_table SQL: {}", sql);
+    // execute the query
 
     // execute the query
     match sqlx::query(&sql).execute(&pool).await {
@@ -615,10 +629,7 @@ async fn create_table(
             "message": "Table created successfully",
             "table": payload.name
         }))),
-        Err(e) => {
-            println!("DEBUG: create_table error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
@@ -665,19 +676,46 @@ async fn alter_table(
             }
             let name_quoted = quote_identifier(&col_def.name, &db_type);
 
-            // Re-using type mapping logic
+            // Re-using type mapping logic (matching create_table)
             let data_type = match col_def.data_type.to_uppercase().as_str() {
                 "TEXT" | "STRING" => "TEXT",
-                "INT" | "INTEGER" | "NUMBER" => "INTEGER",
+                "VARCHAR" | "VARCHAR(255)" => match db_type {
+                    DbType::Postgres => "VARCHAR(255)",
+                    DbType::Mysql => "VARCHAR(255)",
+                    DbType::Sqlite => "TEXT",
+                },
+                "INT" | "INTEGER" | "NUMBER" | "INT4" => "INTEGER",
+                "BIGINT" | "INT8" => match db_type {
+                    DbType::Postgres => "BIGINT",
+                    DbType::Mysql => "BIGINT",
+                    DbType::Sqlite => "INTEGER",
+                },
                 "BOOL" | "BOOLEAN" => match db_type {
                     DbType::Postgres => "BOOLEAN",
                     _ => "INTEGER",
                 },
-                "DATETIME" => match db_type {
+                "DATETIME" | "TIMESTAMP" => match db_type {
                     DbType::Postgres => "TIMESTAMP",
                     _ => "DATETIME",
                 },
-                _ => "TEXT",
+                "DATE" => "DATE",
+                "TIME" => "TIME",
+                "FLOAT" | "REAL" | "DOUBLE" => "REAL",
+                "DECIMAL" | "NUMERIC" => match db_type {
+                    DbType::Postgres => "DECIMAL",
+                    DbType::Mysql => "DECIMAL(10,2)",
+                    DbType::Sqlite => "REAL",
+                },
+                "UUID" => match db_type {
+                    DbType::Postgres => "UUID",
+                    _ => "VARCHAR(36)",
+                },
+                "JSON" | "JSONB" => match db_type {
+                    DbType::Postgres => "JSONB",
+                    DbType::Mysql => "JSON",
+                    DbType::Sqlite => "TEXT",
+                },
+                _ => "TEXT", // Fallback
             };
 
             let nullable = if col_def.nullable { "" } else { "NOT NULL" };
@@ -760,6 +798,8 @@ async fn alter_table(
                     DbType::Postgres => "TIMESTAMP",
                     _ => "DATETIME",
                 },
+                "DATE" => "DATE",
+                "TIME" => "TIME",
                 "VARCHAR" | "VARCHAR(255)" => match db_type {
                     DbType::Sqlite => "TEXT",
                     _ => "VARCHAR(255)",
@@ -779,9 +819,7 @@ async fn alter_table(
                             "ALTER TABLE {} RENAME COLUMN {} TO {}",
                             table_name_quoted, old_name_quoted, new_name_quoted
                         );
-                        println!("DEBUG: alter_table (PG rename) SQL: {}", rename_sql);
                         if let Err(e) = sqlx::query(&rename_sql).execute(&pool).await {
-                            println!("DEBUG: alter_table (PG rename) error: {}", e);
                             return Json(ApiResponse::error(e.to_string()));
                         }
                     }
@@ -862,18 +900,13 @@ async fn alter_table(
         }
     };
 
-    println!("DEBUG: alter_table SQL: {}", sql);
-
     match sqlx::query(&sql).execute(&pool).await {
         Ok(_) => Json(ApiResponse::success(json!({
             "message": "Table altered successfully",
             "table": name,
             "action": format!("{:?}", payload.alter_type)
         }))),
-        Err(e) => {
-            println!("DEBUG: alter_table error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 

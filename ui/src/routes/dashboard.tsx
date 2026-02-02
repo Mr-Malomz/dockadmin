@@ -25,6 +25,7 @@ import type {
 	TableRow,
 	NewColumnDefinition,
 } from '@/models';
+import { normalizeDataType } from '@/models';
 import { toast } from 'sonner';
 import {
 	useTables,
@@ -197,7 +198,18 @@ function DashboardPage() {
 
 	const handleSelectAll = (selected: boolean) => {
 		if (selected) {
-			const allIds = rows.map((_, index) => String(index));
+			// Use the same ID logic as DataGrid's getRowId function
+			const pkColumn = columns.find((col) => col.is_primary_key);
+			const allIds = rows.map((row, index) => {
+				if (
+					pkColumn &&
+					row[pkColumn.name] !== undefined &&
+					row[pkColumn.name] !== null
+				) {
+					return String(row[pkColumn.name]);
+				}
+				return String(index);
+			});
 			setSelectedRows(new Set(allIds));
 		} else {
 			setSelectedRows(new Set());
@@ -571,7 +583,7 @@ function DashboardPage() {
 					tableName: tableToEdit,
 					columns: editTableColumnsQuery.data.map((c) => ({
 						name: c.name,
-						data_type: c.data_type,
+						data_type: normalizeDataType(c.data_type),
 						nullable: c.nullable,
 						is_primary_key: c.is_primary_key,
 						default_value: c.default_value

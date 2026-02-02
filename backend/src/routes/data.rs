@@ -142,10 +142,56 @@ async fn read_rows(
             ),
         }
     } else {
-        format!(
-            "SELECT * FROM {} {} LIMIT {} OFFSET {}",
-            table_quoted, order_clause, limit, offset
-        )
+        // SQLite: cast columns to avoid Any driver type issues with DATETIME/DATE
+        let cols_sql = format!("SELECT name, type FROM pragma_table_info(?)");
+        let col_rows = sqlx::query(&cols_sql).bind(&name).fetch_all(&pool).await;
+
+        match col_rows {
+            Ok(rows) => {
+                let column_casts: Vec<String> = rows
+                    .iter()
+                    .filter_map(|row| {
+                        let col_name: String = row.try_get("name").ok()?;
+                        let col_type: String = row.try_get("type").ok().unwrap_or_default();
+                        let upper_type = col_type.to_uppercase();
+
+                        // Cast DATETIME/DATE/TIMESTAMP columns to TEXT to avoid Any driver issues
+                        if upper_type.contains("DATETIME")
+                            || upper_type.contains("DATE")
+                            || upper_type.contains("TIMESTAMP")
+                            || upper_type.contains("TIME")
+                        {
+                            Some(format!(
+                                "CAST(\"{}\" AS TEXT) as \"{}\"",
+                                col_name, col_name
+                            ))
+                        } else {
+                            Some(format!("\"{}\"", col_name))
+                        }
+                    })
+                    .collect();
+
+                if column_casts.is_empty() {
+                    format!(
+                        "SELECT * FROM {} {} LIMIT {} OFFSET {}",
+                        table_quoted, order_clause, limit, offset
+                    )
+                } else {
+                    format!(
+                        "SELECT {} FROM {} {} LIMIT {} OFFSET {}",
+                        column_casts.join(", "),
+                        table_quoted,
+                        order_clause,
+                        limit,
+                        offset
+                    )
+                }
+            }
+            Err(_) => format!(
+                "SELECT * FROM {} {} LIMIT {} OFFSET {}",
+                table_quoted, order_clause, limit, offset
+            ),
+        }
     };
 
     match sqlx::query(&sql).fetch_all(&pool).await {
@@ -258,17 +304,14 @@ async fn insert_row(
         sql_values.join(", ")
     );
 
-    println!("DEBUG: insert_row SQL: {}", sql);
+    // execute the query
 
     match sqlx::query(&sql).execute(&pool).await {
         Ok(result) => Json(ApiResponse::success(json!({
             "message": "Row inserted successfully",
             "rows_affected": result.rows_affected()
         }))),
-        Err(e) => {
-            println!("DEBUG: insert_row error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 
@@ -326,17 +369,18 @@ async fn get_primary_key(
             }
         }
         DbType::Sqlite => {
-            let info: Vec<(i64, String, String, i64, Option<String>, i64)> =
-                sqlx::query_as(&format!(
-                    "PRAGMA table_info({})",
-                    quote_identifier(table_name, db_type)
-                ))
-                .fetch_all(pool)
-                .await
-                .map_err(|e| e.to_string())?;
+            let rows = sqlx::query(&format!(
+                "PRAGMA table_info({})",
+                quote_identifier(table_name, db_type)
+            ))
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?;
 
-            for (_, name, _, _, _, pk) in info {
+            for row in rows {
+                let pk: i64 = row.try_get("pk").unwrap_or(0);
                 if pk > 0 {
+                    let name: String = row.try_get("name").unwrap_or_default();
                     return Ok(name);
                 }
             }
@@ -420,17 +464,14 @@ async fn update_row(
         id_escaped
     );
 
-    println!("DEBUG: update_row SQL: {}", sql);
+    // execute the query
 
     match sqlx::query(&sql).execute(&pool).await {
         Ok(result) => Json(ApiResponse::success(json!({
             "message": "Row updated successfully",
             "rows_affected": result.rows_affected()
         }))),
-        Err(e) => {
-            println!("DEBUG: update_row error: {}", e);
-            Json(ApiResponse::error(e.to_string()))
-        }
+        Err(e) => Json(ApiResponse::error(e.to_string())),
     }
 }
 

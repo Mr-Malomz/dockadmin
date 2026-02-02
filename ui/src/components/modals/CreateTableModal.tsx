@@ -127,7 +127,6 @@ export function CreateTableModal({
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		console.log('CreateTableModal handleSubmit called');
 		try {
 			await onSave(tableName, columns, foreignKeys);
 			onClose();
