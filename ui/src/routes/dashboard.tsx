@@ -9,6 +9,7 @@ import {
 	DataGridFooter,
 	SchemaView,
 	SQLEditor,
+	RelationshipsPanel,
 	type ViewMode,
 	type QueryResult,
 } from '@/components/data';
@@ -39,6 +40,7 @@ import {
 	useExecuteQuery,
 	useDropTable,
 	useTableForeignKeys,
+	useAllTableColumns,
 } from '@/hooks';
 
 export const Route = createFileRoute('/dashboard')({
@@ -78,10 +80,15 @@ function DashboardPage() {
 	const tablesQuery = useTables();
 	const columnsQuery = useTable(selectedTable || '');
 	const rowsQuery = useTableRows(selectedTable || '');
+	const selectedTableFKsQuery = useTableForeignKeys(selectedTable || '');
 
 	// Queries for Edit Table
 	const editTableColumnsQuery = useTable(tableToEdit || '');
 	const editTableFKsQuery = useTableForeignKeys(tableToEdit || '');
+
+	// Fetch columns for all tables (for FK selection in CreateTableModal)
+	const tableNames = tablesQuery.data?.map((t) => t.name) || [];
+	const allTableColumnsQuery = useAllTableColumns(tableNames);
 
 	// Mutations
 	const createTableMutation = useCreateTable();
@@ -96,6 +103,8 @@ function DashboardPage() {
 	const tables: TableInfo[] = tablesQuery.data || [];
 	const columns: ColumnInfo[] = columnsQuery.data || [];
 	const rows: TableRow[] = rowsQuery.data?.rows || [];
+	const tableColumnsMap: Record<string, string[]> =
+		allTableColumnsQuery.data || {};
 
 	// Auto-select the first table when tables are loaded and none is selected
 	useEffect(() => {
@@ -106,14 +115,21 @@ function DashboardPage() {
 
 	// Open modal when edit data is ready
 	useEffect(() => {
+		// Only open when we have columns data and FK query has completed (success or error)
 		if (
 			tableToEdit &&
 			editTableColumnsQuery.data &&
-			editTableFKsQuery.data
+			!editTableColumnsQuery.isFetching &&
+			!editTableFKsQuery.isFetching
 		) {
 			setCreateTableModalOpen(true);
 		}
-	}, [tableToEdit, editTableColumnsQuery.data, editTableFKsQuery.data]);
+	}, [
+		tableToEdit,
+		editTableColumnsQuery.data,
+		editTableColumnsQuery.isFetching,
+		editTableFKsQuery.isFetching,
+	]);
 
 	// Clear editing state when modal closes
 	useEffect(() => {
@@ -378,7 +394,7 @@ function DashboardPage() {
 	const handleSaveTable = async (
 		tableName: string,
 		tableColumns: NewColumnDefinition[],
-		_foreignKeys: {
+		foreignKeys: {
 			sourceColumn: string;
 			targetTable: string;
 			targetColumn: string;
@@ -396,6 +412,13 @@ function DashboardPage() {
 						nullable: col.nullable,
 						is_primary_key: col.is_primary_key,
 						default_value: col.default_value,
+					})),
+					// Map FK data to backend format (snake_case)
+					foreign_keys: foreignKeys.map((fk) => ({
+						source_column: fk.sourceColumn,
+						target_table: fk.targetTable,
+						target_column: fk.targetColumn,
+						on_delete: fk.onDelete,
 					})),
 				};
 
@@ -687,17 +710,49 @@ function DashboardPage() {
 									<>
 										{/* data view or schema view based on viewMode */}
 										{viewMode === 'data' ? (
-											<DataGrid
-												columns={columns}
-												rows={rows}
-												selectedRows={selectedRows}
-												onSelectRow={handleSelectRow}
-												onSelectAll={handleSelectAll}
-												onEditColumn={handleEditColumn}
-												onDeleteColumn={
-													handleDeleteColumn
-												}
-											/>
+											<>
+												<DataGrid
+													columns={columns}
+													rows={rows}
+													foreignKeys={selectedTableFKsQuery.data?.map(
+														(fk) => ({
+															column_name:
+																fk.column_name,
+															foreign_table:
+																fk.foreign_table,
+															foreign_column:
+																fk.foreign_column,
+														}),
+													)}
+													selectedRows={selectedRows}
+													onSelectRow={
+														handleSelectRow
+													}
+													onSelectAll={
+														handleSelectAll
+													}
+													onEditColumn={
+														handleEditColumn
+													}
+													onDeleteColumn={
+														handleDeleteColumn
+													}
+												/>
+												<RelationshipsPanel
+													foreignKeys={
+														selectedTableFKsQuery.data?.map(
+															(fk) => ({
+																column_name:
+																	fk.column_name,
+																foreign_table:
+																	fk.foreign_table,
+																foreign_column:
+																	fk.foreign_column,
+															}),
+														) || []
+													}
+												/>
+											</>
 										) : (
 											<SchemaView
 												tableName={selectedTable}
@@ -777,6 +832,7 @@ function DashboardPage() {
 				onClose={() => setCreateTableModalOpen(false)}
 				onSave={handleSaveTable}
 				availableTables={tables}
+				tableColumnsMap={tableColumnsMap}
 				databaseName={database || undefined}
 				initialData={editInitialData}
 			/>

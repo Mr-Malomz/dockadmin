@@ -397,10 +397,10 @@ async fn get_foreign_keys(
             DbType::Postgres => {
                 let sql = "
                     SELECT
-                        tc.constraint_name,
-                        kcu.column_name,
-                        ccu.table_name AS foreign_table,
-                        ccu.column_name AS foreign_column
+                        tc.constraint_name::TEXT as constraint_name,
+                        kcu.column_name::TEXT as column_name,
+                        ccu.table_name::TEXT AS foreign_table,
+                        ccu.column_name::TEXT AS foreign_column
                     FROM information_schema.table_constraints AS tc
                     JOIN information_schema.key_column_usage AS kcu
                       ON tc.constraint_name = kcu.constraint_name
@@ -613,15 +613,66 @@ async fn create_table(
         );
     }
 
-    // construct SQL
-    let table_name_quoted = quote_identifier(&payload.name, &db_type);
-    let sql = format!(
-        "CREATE TABLE {} ({})",
-        table_name_quoted,
-        column_defs.join(", ")
-    );
+    // Build foreign key constraints (only if FKs exist)
+    let mut fk_constraints = Vec::new();
+    for fk in &payload.foreign_keys {
+        // Validate identifiers
+        if !is_valid_identifier(&fk.source_column)
+            || !is_valid_identifier(&fk.target_table)
+            || !is_valid_identifier(&fk.target_column)
+        {
+            return Json(ApiResponse::error(&format!(
+                "Invalid foreign key identifier: {} -> {}.{}",
+                fk.source_column, fk.target_table, fk.target_column
+            )));
+        }
 
-    // execute the query
+        // Validate ON DELETE action
+        let on_delete_action = match fk.on_delete.to_uppercase().as_str() {
+            "RESTRICT" => "RESTRICT",
+            "CASCADE" => "CASCADE",
+            "SET NULL" => "SET NULL",
+            "SET DEFAULT" => "SET DEFAULT",
+            "NO ACTION" => "NO ACTION",
+            _ => "RESTRICT", // Default fallback
+        };
+
+        let source_col = quote_identifier(&fk.source_column, &db_type);
+        let target_table = quote_identifier(&fk.target_table, &db_type);
+        let target_col = quote_identifier(&fk.target_column, &db_type);
+
+        // Generate FK constraint based on DB type
+        let fk_constraint = match db_type {
+            DbType::Postgres | DbType::Mysql => {
+                // Table-level constraint syntax works for both
+                format!(
+                    "FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE {}",
+                    source_col, target_table, target_col, on_delete_action
+                )
+            }
+            DbType::Sqlite => {
+                // SQLite also supports table-level constraints
+                format!(
+                    "FOREIGN KEY ({}) REFERENCES {}({}) ON DELETE {}",
+                    source_col, target_table, target_col, on_delete_action
+                )
+            }
+        };
+
+        fk_constraints.push(fk_constraint);
+    }
+
+    // construct SQL with columns and foreign keys
+    let table_name_quoted = quote_identifier(&payload.name, &db_type);
+
+    // Combine column definitions and FK constraints
+    let all_defs = if fk_constraints.is_empty() {
+        column_defs.join(", ")
+    } else {
+        format!("{}, {}", column_defs.join(", "), fk_constraints.join(", "))
+    };
+
+    let sql = format!("CREATE TABLE {} ({})", table_name_quoted, all_defs);
 
     // execute the query
     match sqlx::query(&sql).execute(&pool).await {

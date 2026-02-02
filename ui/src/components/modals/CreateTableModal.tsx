@@ -48,6 +48,7 @@ interface CreateTableModalProps {
 		foreignKeys: ForeignKeyDefinition[],
 	) => void | Promise<void>;
 	availableTables?: TableInfo[]; // Tables available for FK references
+	tableColumnsMap?: Record<string, string[]>; // Map of table name to column names
 	databaseName?: string;
 	initialData?: {
 		tableName: string;
@@ -61,6 +62,7 @@ export function CreateTableModal({
 	onClose,
 	onSave,
 	availableTables = [],
+	tableColumnsMap = {},
 	databaseName = 'Database',
 	initialData,
 }: CreateTableModalProps) {
@@ -152,16 +154,20 @@ export function CreateTableModal({
 		field: keyof ForeignKeyDefinition,
 		value: string,
 	) => {
-		const newFKs = [...foreignKeys];
-		newFKs[index] = { ...newFKs[index], [field]: value };
-		setForeignKeys(newFKs);
+		setForeignKeys((prevFKs) => {
+			const newFKs = [...prevFKs];
+			newFKs[index] = { ...newFKs[index], [field]: value };
+			return newFKs;
+		});
 	};
 
-	// Get columns from a target table (mock - returns common columns)
-	// In a real app, this would fetch columns from the API based on table selection
-	const getTargetTableColumns = (_tableId: string): string[] => {
-		// For now, return common column names. In production, fetch from API.
-		return ['id', 'created_at', 'updated_at', 'name', 'email', 'user_id'];
+	const getTargetTableColumns = (tableId: string): string[] => {
+		// Return columns from the tableColumnsMap, or fallback to 'id' if not available
+		if (tableColumnsMap[tableId] && tableColumnsMap[tableId].length > 0) {
+			return tableColumnsMap[tableId];
+		}
+		// Fallback: return 'id' as a default column
+		return ['id'];
 	};
 
 	return (
@@ -440,12 +446,16 @@ export function CreateTableModal({
 									<div className='space-y-2'>
 										{foreignKeys.map((fk, index) => (
 											<div
-												key={index}
+												key={`fk-${index}-${fk.targetTable}-${fk.sourceColumn}`}
 												className='flex items-center gap-3 p-3 bg-duck-dark-600/50 border border-duck-dark-400/30 rounded-md'
 											>
 												{/* Target Table (select first) */}
 												<Select
-													value={fk.targetTable}
+													key={`target-table-${index}`}
+													value={
+														fk.targetTable ||
+														undefined
+													}
 													onValueChange={(value) => {
 														updateForeignKey(
 															index,
@@ -464,8 +474,21 @@ export function CreateTableModal({
 														<SelectValue placeholder='Select table' />
 													</SelectTrigger>
 													<SelectContent className='bg-duck-dark-600 border-duck-dark-400/50'>
-														{availableTables.map(
-															(table) => (
+														{availableTables
+															.filter((table) => {
+																// When editing, exclude the current table to prevent self-referencing
+																if (
+																	initialData &&
+																	tableName
+																) {
+																	return (
+																		table.name !==
+																		tableName
+																	);
+																}
+																return true;
+															})
+															.map((table) => (
 																<SelectItem
 																	key={
 																		table.name
@@ -477,8 +500,7 @@ export function CreateTableModal({
 																>
 																	{table.name}
 																</SelectItem>
-															),
-														)}
+															))}
 													</SelectContent>
 												</Select>
 
@@ -488,7 +510,11 @@ export function CreateTableModal({
 
 												{/* Target Column */}
 												<Select
-													value={fk.targetColumn}
+													key={`target-column-${index}`}
+													value={
+														fk.targetColumn ||
+														undefined
+													}
 													onValueChange={(value) =>
 														updateForeignKey(
 															index,
@@ -496,9 +522,13 @@ export function CreateTableModal({
 															value,
 														)
 													}
-													disabled={!fk.targetTable}
 												>
-													<SelectTrigger className='w-32 h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 text-duck-sm'>
+													<SelectTrigger
+														className='w-32 h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 text-duck-sm'
+														disabled={
+															!fk.targetTable
+														}
+													>
 														<SelectValue placeholder='Column' />
 													</SelectTrigger>
 													<SelectContent className='bg-duck-dark-600 border-duck-dark-400/50'>
@@ -524,7 +554,11 @@ export function CreateTableModal({
 
 												{/* Source Column (from this table) */}
 												<Select
-													value={fk.sourceColumn}
+													key={`source-column-${index}`}
+													value={
+														fk.sourceColumn ||
+														undefined
+													}
 													onValueChange={(value) =>
 														updateForeignKey(
 															index,
@@ -532,9 +566,13 @@ export function CreateTableModal({
 															value,
 														)
 													}
-													disabled={!fk.targetTable}
 												>
-													<SelectTrigger className='w-40 h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 text-duck-sm'>
+													<SelectTrigger
+														className='w-40 h-8 bg-duck-dark-600 border-duck-dark-400/50 text-duck-white-800 text-duck-sm'
+														disabled={
+															!fk.targetTable
+														}
+													>
 														<SelectValue placeholder='This table column' />
 													</SelectTrigger>
 													<SelectContent className='bg-duck-dark-600 border-duck-dark-400/50'>
@@ -560,7 +598,10 @@ export function CreateTableModal({
 
 												{/* ON DELETE Action */}
 												<Select
-													value={fk.onDelete}
+													key={`on-delete-${index}`}
+													value={
+														fk.onDelete || undefined
+													}
 													onValueChange={(value) =>
 														updateForeignKey(
 															index,

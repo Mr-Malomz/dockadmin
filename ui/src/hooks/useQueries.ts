@@ -39,6 +39,35 @@ export function useTable(tableName: string) {
     });
 }
 
+// Hook to fetch columns for all tables and return a map
+export function useAllTableColumns(tableNames: string[]) {
+    return useQuery({
+        queryKey: ['allTableColumns', tableNames],
+        queryFn: async () => {
+            const columnsMap: Record<string, string[]> = {};
+
+            // Fetch columns for each table in parallel
+            await Promise.all(
+                tableNames.map(async (tableName) => {
+                    try {
+                        const response = await schemaApi.getTable(tableName);
+                        if (response.success && response.data) {
+                            columnsMap[tableName] = response.data.columns.map((col) => col.name);
+                        }
+                    } catch {
+                        // If fetching fails for a table, continue with others
+                        columnsMap[tableName] = ['id'];
+                    }
+                })
+            );
+
+            return columnsMap;
+        },
+        enabled: tableNames.length > 0,
+        staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    });
+}
+
 export function useTableIndexes(tableName: string) {
     return useQuery({
         queryKey: queryKeys.tableIndexes(tableName),
