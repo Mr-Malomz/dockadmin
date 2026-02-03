@@ -512,7 +512,6 @@ function DashboardPage() {
 
 			// Modify Columns
 			for (const col of modifiedCols) {
-				const oldCol = originalCols.find((c) => c.name === col.name)!;
 				await alterTableMutation.mutateAsync({
 					tableName: currentTableName,
 					request: {

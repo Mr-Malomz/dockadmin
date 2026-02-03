@@ -1,6 +1,7 @@
 export default function SQLIcon({ className }: { className?: string }) {
-  return (
+	return (
 		<svg
+			className={className}
 			width='16'
 			height='16'
 			viewBox='0 0 16 16'
@@ -14,5 +15,5 @@ export default function SQLIcon({ className }: { className?: string }) {
 				strokeLinejoin='round'
 			/>
 		</svg>
-  );
+	);
 }

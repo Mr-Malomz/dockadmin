@@ -23,14 +23,21 @@ pub fn routes(session_store: SessionStore) -> Router {
 }
 
 fn build_connection_string(req: &ConnectRequest) -> String {
+    let mut host = req.host.clone();
+
+    // If running in docker container, map localhost to host.docker.internal
+    if std::env::var("IS_DOCKER").is_ok() && (host == "localhost" || host == "127.0.0.1") {
+        host = "host.docker.internal".to_string();
+    }
+
     match req.db_type {
         DbType::Postgres => format!(
             "postgres://{}:{}@{}:{}/{}",
-            req.username, req.password, req.host, req.port, req.database
+            req.username, req.password, host, req.port, req.database
         ),
         DbType::Mysql => format!(
             "mysql://{}:{}@{}:{}/{}",
-            req.username, req.password, req.host, req.port, req.database
+            req.username, req.password, host, req.port, req.database
         ),
         DbType::Sqlite => format!("sqlite:{}", req.database),
     }
