@@ -1,0 +1,32 @@
+# Labeler configuration
+# Automatically labels PRs based on files changed
+
+# Backend changes
+backend:
+  - changed-files:
+      - any-glob-to-any-file: 'backend/**/*'
+
+# Frontend changes
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: 'ui/**/*'
+
+# Documentation
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.md'
+          - 'docs/**/*'
+
+# Docker/Infrastructure
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'Dockerfile'
+          - 'docker-compose.yml'
+          - '.dockerignore'
+
+# GitHub config
+github:
+  - changed-files:
+      - any-glob-to-any-file: '.github/**/*'
