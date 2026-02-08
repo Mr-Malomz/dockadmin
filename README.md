@@ -154,7 +154,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🙏 Acknowledgments
 
 - [Adminer](https://www.adminer.org/) — For the inspiration of simple, effective database management
-- [Supabase Studio](https://supabase.com/) — For the modern UI design inspiration
 - [shadcn/ui](https://ui.shadcn.com/) — For the beautiful component library
 
 ---
