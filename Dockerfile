@@ -1,5 +1,5 @@
 # Frontend Build
-FROM --platform=linux/amd64 node:22-alpine AS frontend
+FROM node:22-alpine AS frontend
 WORKDIR /ui
 COPY ui/package*.json ui/package-lock.json* ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY ui .
 RUN npm run build
 
 # Backend Build
-FROM --platform=linux/amd64 rust:1-alpine AS backend
+FROM rust:1-alpine AS backend
 WORKDIR /backend
 RUN apk add --no-cache musl-dev
 COPY backend/Cargo.toml backend/Cargo.lock ./
@@ -32,4 +32,3 @@ COPY --from=frontend /ui/dist ./ui
 ENV IS_DOCKER=true
 EXPOSE 3000
 CMD ["./dockadmin"]
-
