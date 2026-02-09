@@ -1,7 +1,7 @@
 # <img src="./docs/images/logo.png" alt="DockAdmin" height="32"/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://hub.docker.com/r/dockadmin/dockadmin)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://hub.docker.com/r/demlabz/dockadmin)
 ![Status](https://img.shields.io/badge/Status-Beta-orange)
 
 > A lightweight, Docker-native database administration UI for developers.
@@ -47,7 +47,7 @@ services:
 
     # Add DockAdmin
     dockadmin:
-        image: dockadmin/dockadmin
+        image: demlabz/dockadmin
         ports:
             - '3000:3000'
 ```
@@ -63,7 +63,7 @@ Open [http://localhost:3000](http://localhost:3000) and connect to your database
 ### Standalone
 
 ```bash
-docker run -p 3000:3000 dockadmin/dockadmin
+docker run -p 3000:3000 demlabz/dockadmin
 ```
 
 > **Note**: When running standalone, use your database's accessible host/IP to connect.
@@ -89,7 +89,7 @@ DockAdmin can be configured via environment variables:
 
 ## 📚 API Reference
 
-DockAdmin exposes a RESTful API for all database operations. 
+DockAdmin exposes a RESTful API for all database operations.
 
 ### Key Endpoints
 
