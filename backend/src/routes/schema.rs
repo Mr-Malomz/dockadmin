@@ -941,7 +941,7 @@ async fn alter_table(
                 }
                 DbType::Mysql => {
                     // MySQL requires specifying the column definition when renaming
-                    // For simplicity, we'll use RENAME COLUMN in newer MySQL 8.0+
+                    // For simplicity, I use RENAME COLUMN in newer MySQL 8.0+
                     format!(
                         "ALTER TABLE {} RENAME COLUMN {} TO {}",
                         table_name_quoted, old_name_quoted, new_name_quoted

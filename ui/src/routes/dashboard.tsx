@@ -115,7 +115,6 @@ function DashboardPage() {
 
 	// Open modal when edit data is ready
 	useEffect(() => {
-		// Only open when we have columns data and FK query has completed (success or error)
 		if (
 			tableToEdit &&
 			editTableColumnsQuery.data &&
@@ -386,7 +385,7 @@ function DashboardPage() {
 				setDeletingColumnName(null);
 			} catch (error) {
 				toast.error('Failed to delete column');
-				throw error; // Re-throw so modal stays open
+				throw error;
 			}
 		}
 	};
@@ -449,10 +448,6 @@ function DashboardPage() {
 			const originalCols = editInitialData?.columns || [];
 
 			// 2. Identify Changes
-			// Columns to Add (in new but not in old)
-			// We match by name. A column is "New" if its name doesn't exist in original cols.
-			// Note: This means renaming a column in UI = Drop + Add (data loss) unless we track IDs
-			// Since our UI doesn't track column rename explicitly (no IDs), we accept this limitation for now.
 			const addedCols = tableColumns.filter(
 				(newCol) =>
 					!originalCols.some((oldCol) => oldCol.name === newCol.name),
@@ -475,12 +470,8 @@ function DashboardPage() {
 					oldCol.nullable !== newCol.nullable ||
 					String(oldCol.default_value || '') !==
 						String(newCol.default_value || '')
-					// checking PK change might be tricky if backend doesn't support it easily, skipping for now
 				);
 			});
-
-			// 3. Execute Updates Comparison
-			// Since mutations are async and might depend on each other (schema state), execute sequentially
 
 			// Drop Columns
 			for (const col of droppedCols) {
@@ -621,7 +612,7 @@ function DashboardPage() {
 								targetColumn: fk.foreign_column,
 								onDelete: 'RESTRICT', // Default, as API might not return exact onDelete action yet
 							}) as any,
-					), // Cast as any to bypass strict literal type check for onDelete
+					), 
 				}
 			: null;
 

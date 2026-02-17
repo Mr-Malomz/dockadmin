@@ -23,7 +23,6 @@ interface ColumnModalProps {
 	onClose: () => void;
 	tableName: string;
 	onSave: (column: NewColumnDefinition) => void | Promise<void>;
-	/** If provided, the modal will be in "edit" mode with pre-filled data */
 	editingColumn?: ColumnInfo | null;
 }
 
@@ -43,10 +42,8 @@ export function ColumnModal({
 	// Reset or populate form when modal opens
 	useEffect(() => {
 		if (open) {
-			setValidationError(null); // Clear error on open
+			setValidationError(null);
 			if (editingColumn) {
-				// Edit mode: populate with existing column data
-				// Normalize the data type to match dropdown options
 				setColumn({
 					name: editingColumn.name,
 					description: '',
@@ -54,10 +51,9 @@ export function ColumnModal({
 					default_value: editingColumn.default_value || '',
 					is_primary_key: editingColumn.is_primary_key,
 					nullable: editingColumn.nullable,
-					unique: false, // ColumnInfo doesn't have unique, default to false
+					unique: false,
 				});
 			} else {
-				// Add mode: reset to initial values
 				setColumn(INITIAL_NEW_COLUMN);
 			}
 		}

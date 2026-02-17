@@ -52,7 +52,6 @@ export function EditRowModal({
 		}
 	};
 
-	// Filter out auto-generated columns like id with default values
 	const editableColumns = columns.filter(
 		(col) => !col.is_primary_key || col.default_value === null,
 	);
