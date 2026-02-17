@@ -99,7 +99,6 @@ async fn disconnect(
         None => "",
     };
 
-    // Remove session from store
     if !token.is_empty() {
         let mut store = session_store.write().await;
         store.remove(token);

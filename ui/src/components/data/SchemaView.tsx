@@ -43,7 +43,6 @@ export function SchemaView({ tableName, columns, dbType }: SchemaViewProps) {
 			const constraintExists = columns.some((c) => c.is_primary_key);
 
 			// Logic for comma differs slightly if we add constraints at the end
-			// For this simple view, we'll always add PK at the end if it exists
 			if (!isLast || constraintExists) {
 				lines.push(parts.join(' ') + ',');
 			} else {

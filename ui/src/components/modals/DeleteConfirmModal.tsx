@@ -6,13 +6,9 @@ import { useState } from 'react';
 interface DeleteConfirmModalProps {
 	open: boolean;
 	onClose: () => void;
-	/** Type of item being deleted: 'row', 'column', etc. */
 	itemType: 'row' | 'column' | 'table';
-	/** Number of items to delete */
 	itemCount: number;
-	/** Name of the table/container */
 	tableName: string;
-	/** Optional: name of the item being deleted (for single column deletion) */
 	itemName?: string;
 	onConfirm: () => void | Promise<void>;
 }

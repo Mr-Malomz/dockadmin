@@ -23,7 +23,6 @@ interface QueryResult {
 	columns: string[];
 	rows: RowData[];
 	error?: string;
-	// For non-data operations (INSERT, UPDATE, DELETE)
 	message?: string;
 	rowsAffected?: number;
 }
@@ -84,7 +83,6 @@ export function SQLEditor({ onRun }: SQLEditorProps) {
 
 	return (
 		<div className='flex-1 flex flex-col min-h-0 overflow-hidden'>
-			{/* Header */}
 			<div className='flex items-center justify-between px-6 pt-8 pb-3 shrink-0 border-b border-duck-dark-400/30'>
 				<h1 className='text-duck-lg font-normal text-duck-white-500'>
 					SQL Editor
@@ -98,7 +96,6 @@ export function SQLEditor({ onRun }: SQLEditorProps) {
 				</Button>
 			</div>
 
-			{/* Code Editor */}
 			<div className='px-6 shrink-0 mt-3' style={{ height: '300px' }}>
 				<div className='h-full border border-duck-dark-400/30 rounded overflow-hidden'>
 					<CodeMirror
@@ -118,9 +115,7 @@ export function SQLEditor({ onRun }: SQLEditorProps) {
 				</div>
 			</div>
 
-			{/* Results Section */}
 			<div className='flex-1 flex flex-col min-h-0 mt-4 overflow-hidden border-t border-duck-dark-400/30'>
-				{/* Status Bar */}
 				{result.status !== 'idle' && (
 					<div className='flex items-center gap-6 px-6 py-4 shrink-0 border-b border-duck-dark-400/30'>
 						<div className='flex items-center gap-2'>

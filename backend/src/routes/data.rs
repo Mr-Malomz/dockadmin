@@ -502,8 +502,7 @@ async fn delete_row(
     let table_quoted = quote_identifier(&name, &db_type);
     let pk_quoted = quote_identifier(&pk_col, &db_type);
 
-    // Note: treating ID as string literal to rely on DB implicit casting (e.g. '1' -> 1)
-    // This matches update_row strategy and avoids specific type binding issues with Any driver
+    // Note: treating ID as string literal to rely on DB implicit casting (e.g. '1' -> 1). This matches update_row strategy and avoids specific type binding issues with Any driver
     let id_escaped = id.replace('\'', "''");
     let sql = format!(
         "DELETE FROM {} WHERE {} = '{}'",

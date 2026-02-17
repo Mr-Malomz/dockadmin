@@ -35,11 +35,9 @@ async fn execute_query(
     if is_select {
         let mut final_sql = sql.to_string();
 
-        // Using temp table to inspect columns and cast to CHAR
-        // This avoids "Any driver does not support MySql type..." error for DATETIME
+        // Using temp table to inspect columns and cast to CHAR. This avoids "Any driver does not support MySql type..." error for DATETIME
         if matches!(db_type, DbType::Mysql) {
-            // Usage of temp tables requires the same connection for creation and inspection.
-            // Pool execution might switch connections, so we must acquire one explicitly.
+            // Usage of temp tables requires the same connection for creation and inspection. Pool execution might switch connections, so we must acquire one explicitly.
             if let Ok(mut conn) = pool.acquire().await {
                 let temp_name = format!("temp_{}", Uuid::new_v4().simple());
                 let clean_sql = sql.trim_end_matches(|c| c == ';' || char::is_whitespace(c));

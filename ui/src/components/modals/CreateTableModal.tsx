@@ -47,8 +47,8 @@ interface CreateTableModalProps {
 		columns: NewColumnDefinition[],
 		foreignKeys: ForeignKeyDefinition[],
 	) => void | Promise<void>;
-	availableTables?: TableInfo[]; // Tables available for FK references
-	tableColumnsMap?: Record<string, string[]>; // Map of table name to column names
+	availableTables?: TableInfo[];
+	tableColumnsMap?: Record<string, string[]>;
 	databaseName?: string;
 	initialData?: {
 		tableName: string;
@@ -85,13 +85,11 @@ export function CreateTableModal({
 	useEffect(() => {
 		if (open) {
 			if (initialData) {
-				// Editing mode - populate with initial data
 				setTableName(initialData.tableName);
-				setDescription(''); // Assuming no description for now, or fetch if available
+				setDescription('');
 				setColumns(initialData.columns);
 				setForeignKeys(initialData.foreignKeys);
 			} else {
-				// Creation mode - reset
 				setTableName('');
 				setDescription('');
 				setColumns([
@@ -546,7 +544,6 @@ export function CreateTableModal({
 													</SelectContent>
 												</Select>
 
-												{/* Arrow */}
 												<ArrowRight
 													size={16}
 													className='text-duck-white-700 shrink-0'
