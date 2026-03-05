@@ -1,6 +1,7 @@
 pub mod connection;
 pub mod data;
 pub mod database;
+pub mod export;
 pub mod query;
 pub mod schema;
 
@@ -15,4 +16,5 @@ pub fn api_routes(session_store: SessionStore) -> Router {
         .nest("/schema", schema::routes(session_store.clone()))
         .nest("/table", data::routes(session_store.clone()))
         .nest("/query", query::routes(session_store.clone()))
+        .nest("/export", export::routes(session_store.clone()))
 }

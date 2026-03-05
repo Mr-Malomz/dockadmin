@@ -28,6 +28,7 @@ import type {
 } from '@/models';
 import { normalizeDataType } from '@/models';
 import { toast } from 'sonner';
+import { exportTable } from '@/api/export';
 import {
 	useTables,
 	useTable,
@@ -612,7 +613,7 @@ function DashboardPage() {
 								targetColumn: fk.foreign_column,
 								onDelete: 'RESTRICT', // Default, as API might not return exact onDelete action yet
 							}) as any,
-					), 
+					),
 				}
 			: null;
 
@@ -661,10 +662,26 @@ function DashboardPage() {
 							<DataGridHeader
 								tableName={selectedTable}
 								selectedCount={selectedRows.size}
+								rowCount={rows.length}
 								onAddColumn={() => setAddColumnModalOpen(true)}
 								onEditRow={handleEditRow}
 								onAddRow={() => setAddRowModalOpen(true)}
 								onDeleteRows={handleDeleteRows}
+								onExport={async () => {
+									if (!selectedTable) return;
+									try {
+										await exportTable(selectedTable);
+										toast.success(
+											`Exported "${selectedTable}" as CSV`,
+										);
+									} catch (error) {
+										toast.error(
+											error instanceof Error
+												? error.message
+												: 'Export failed',
+										);
+									}
+								}}
 							/>
 
 							{/* loading state for columns/rows */}

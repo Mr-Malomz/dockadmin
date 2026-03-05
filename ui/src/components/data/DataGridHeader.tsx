@@ -2,23 +2,28 @@ import { Button } from '@/components/ui/button';
 import AddIcon from '@/assets/svgs/AddIcon';
 import EditIcon from '@/assets/svgs/EditIcon';
 import DeleteIcon from '@/assets/svgs/DeleteIcon';
+import { Upload } from 'lucide-react';
 
 interface DataGridHeaderProps {
 	tableName: string;
 	selectedCount: number;
+	rowCount: number;
 	onAddColumn: () => void;
 	onAddRow: () => void;
 	onEditRow: () => void;
 	onDeleteRows: () => void;
+	onExport: () => void;
 }
 
 export function DataGridHeader({
 	tableName,
 	selectedCount,
+	rowCount,
 	onAddColumn,
 	onAddRow,
 	onEditRow,
 	onDeleteRows,
+	onExport,
 }: DataGridHeaderProps) {
 	const hasSelection = selectedCount > 0;
 	const isSingleSelection = selectedCount === 1;
@@ -76,6 +81,16 @@ export function DataGridHeader({
 							<AddIcon />
 							Add Row
 						</Button>
+						{rowCount > 0 && (
+							<Button
+								onClick={onExport}
+								variant='outline'
+								className='gap-2 h-8 bg-transparent border-duck-dark-400/50 text-duck-white-500 hover:bg-duck-dark-700 text-duck-sm'
+							>
+								<Upload className='w-4 h-4' />
+								Export CSV
+							</Button>
+						)}
 					</>
 				)}
 			</div>
