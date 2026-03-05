@@ -4,6 +4,7 @@ export * as database from './database';
 export * as schema from './schema';
 export * as data from './data';
 export * as query from './query';
+export * as exportApi from './export';
 
 // Re-export token utilities
 export { getToken, setToken, clearToken } from './client';

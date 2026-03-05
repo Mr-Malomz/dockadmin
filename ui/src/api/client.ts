@@ -38,6 +38,26 @@ export async function request<T>(
     return res.json();
 }
 
+// raw request that returns the Response object directly (for file downloads, etc.)
+export async function rawRequest(
+    url: string,
+    options: RequestInit = {}
+): Promise<Response> {
+    const token = getToken();
+    const headers: HeadersInit = {
+        ...options.headers,
+    };
+
+    if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+
+    return fetch(`${API_BASE}${url}`, {
+        ...options,
+        headers,
+    });
+}
+
 // request methods
 export const api = {
     get: <T>(url: string) => request<T>(url, { method: 'GET' }),
